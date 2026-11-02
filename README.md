@@ -183,3 +183,9 @@ AI assistance disclosure: **OpenAI Codex** assisted with original project implem
 tests and documentation during the hackathon. No complete existing sign-language project
 was copied. Human sign verification and real evaluation cannot be supplied by generated
 fixtures or assistant declarations.
+
+## Phase 2C compatibility investigation
+
+The [sequence infrastructure assessment](docs/phase2c.md) documents the 41-label ZIP,
+explicit Holistic adapter contract, review-gated CPU research baseline and remaining
+webcam/public-deployment gates. No archive-based model is trained or enabled.
