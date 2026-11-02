@@ -189,3 +189,7 @@ fixtures or assistant declarations.
 The [sequence infrastructure assessment](docs/phase2c.md) documents the 41-label ZIP,
 explicit Holistic adapter contract, review-gated CPU research baseline and remaining
 webcam/public-deployment gates. No archive-based model is trained or enabled.
+
+The [Phase 2D experiment](docs/phase2d.md) runs a pinned legacy Holistic CPU extractor
+in isolation and records real schema/latency checks. Human approvals remain at zero;
+no dataset-trained classifier or public webcam recognition is enabled.

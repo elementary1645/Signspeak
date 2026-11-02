@@ -1,0 +1,259 @@
+{
+  "purpose": "extractor diagnostic only; repeated still image, not ISL or live webcam",
+  "python": "3.12.3",
+  "platform": "Linux-6.8.0-1064-azure-x86_64-with-glibc2.39",
+  "mediapipe": "0.10.21",
+  "numpy": "1.26.4",
+  "opencv": "4.11.0",
+  "cpu_count_visible": 2,
+  "cpu_model": "AMD EPYC 7763 64-Core Processor",
+  "cpu_quota": "max 100000",
+  "contract": {
+    "extractor": "mediapipe-legacy-holistic-0.10.21",
+    "model_sha256": "58ae14f56e48ebe3026b1a3d64dda8054a2763eb3b97aa0db5f972f34dea66ae",
+    "options_json": "{\"enable_segmentation\":false,\"min_detection_confidence\":0.5,\"min_tracking_confidence\":0.5,\"model_complexity\":1,\"refine_face_landmarks\":false,\"smooth_landmarks\":true,\"smooth_segmentation\":false,\"static_image_mode\":false}",
+    "input_mirrored": false,
+    "sample_period_ms": 100,
+    "schema": "holistic-1662-v1",
+    "coordinates": "normalized-image-xyz;pose-visibility",
+    "handedness": "subject-left-then-right",
+    "missing": "whole-block-zero"
+  },
+  "contract_sha256": "b7d5ebf0bfde7884b81f48f396ab9b1adf66907229cbca9be39e70829c9f0b48",
+  "model_asset_manifest": {
+    "modules/face_detection/face_detection_full_range_cpu.binarypb": {
+      "sha256": "00f072e71a9752536aa4b09216c6bf8d9cc7493222a8d3a472e563eb0e23163b",
+      "bytes": 260
+    },
+    "modules/face_detection/face_detection_full_range_sparse.tflite": {
+      "sha256": "2c3728e6da56f21e21a320433396fb06d40d9088f2247c05e5635a688d45dfe1",
+      "bytes": 676746
+    },
+    "modules/face_detection/face_detection_short_range.tflite": {
+      "sha256": "bbff11cebd1eb27a1e004cae0b0e63ec8c551cbf34a4451148b4908b8db3eca8",
+      "bytes": 229714
+    },
+    "modules/face_detection/face_detection_short_range_cpu.binarypb": {
+      "sha256": "84e65794d4e1d1c6d56896f4dfaab97bc769033205475c1bb9967a22f0da469c",
+      "bytes": 262
+    },
+    "modules/face_landmark/face_landmark.tflite": {
+      "sha256": "1055cb9d4a9ca8b8c688902a3a5194311138ba256bcc94e336d8373a5f30c814",
+      "bytes": 1242398
+    },
+    "modules/face_landmark/face_landmark_front_cpu.binarypb": {
+      "sha256": "fa3c092da27d031d54ddd61a29b0e3dd521d53f55fa8898cb0f2b64d79cd6573",
+      "bytes": 2361
+    },
+    "modules/face_landmark/face_landmark_with_attention.tflite": {
+      "sha256": "e06a804e0144f9929eda782122916b35d60c697c3c9344013ca2bbe76a6ce2b4",
+      "bytes": 2495106
+    },
+    "modules/hand_landmark/hand_landmark_full.tflite": {
+      "sha256": "11c272b891e1a99ab034208e23937a8008388cf11ed2a9d776ed3d01d0ba00e3",
+      "bytes": 5478917
+    },
+    "modules/hand_landmark/hand_landmark_lite.tflite": {
+      "sha256": "048edd3645c9bf7397d19a9f6e3a42957d6e414c9bea6598030a2e9b624156e6",
+      "bytes": 2071597
+    },
+    "modules/hand_landmark/hand_landmark_tracking_cpu.binarypb": {
+      "sha256": "942ad4e6b3ecd1903fd2743ad2255a341854de975ef9c90418a4c7b64f0b4425",
+      "bytes": 2901
+    },
+    "modules/holistic_landmark/hand_recrop.tflite": {
+      "sha256": "67d996ce96f9d36fe17d2693022c6da93168026ab2f028f9e2365398d8ac7d5d",
+      "bytes": 123792
+    },
+    "modules/holistic_landmark/holistic_landmark_cpu.binarypb": {
+      "sha256": "c1da3ea92cd0dfaeb35a1b3863a3a34202c6f4beffe410eff4a337569c808fbd",
+      "bytes": 1370
+    },
+    "modules/iris_landmark/iris_landmark.tflite": {
+      "sha256": "d1744d2a09c25f501d39eba4faff47e53ecca8852c5ce19bce8eeac39357521f",
+      "bytes": 2640568
+    },
+    "modules/objectron/objectron_cpu.binarypb": {
+      "sha256": "96edc7f375830458587845d5e30de898f39c21f528ec5c58bafda1bd65b2a18a",
+      "bytes": 2267
+    },
+    "modules/palm_detection/palm_detection_full.tflite": {
+      "sha256": "1b14e9422c6ad006cde6581a46c8b90dd573c07ab7f3934b5589e7cea3f89a54",
+      "bytes": 2339846
+    },
+    "modules/palm_detection/palm_detection_lite.tflite": {
+      "sha256": "e9a4aaddf90dda56a87235303cf00e4c2d3fb28725f68fd88772997dac905c18",
+      "bytes": 1985440
+    },
+    "modules/pose_detection/pose_detection.tflite": {
+      "sha256": "9ba9dd3d42efaaba86b4ff0122b06f29c4122e756b329d89dca1e297fd8f866c",
+      "bytes": 2959046
+    },
+    "modules/pose_landmark/pose_landmark_cpu.binarypb": {
+      "sha256": "90ddc717625a3c1aedfdca124212a36ce595cdbbe46513fd93adca5202d8ff21",
+      "bytes": 2418
+    },
+    "modules/pose_landmark/pose_landmark_full.tflite": {
+      "sha256": "e9a5c5cb17f736fafd4c2ec1da3b3d331d6edbe8a0d32395855aeb2cdfd64b9f",
+      "bytes": 6440512
+    },
+    "modules/selfie_segmentation/selfie_segmentation.tflite": {
+      "sha256": "9ee168ec7c8f2a16c56fe8e1cfbc514974cbbb7e434051b455635f1bd1462f5c",
+      "bytes": 249505
+    },
+    "modules/selfie_segmentation/selfie_segmentation_cpu.binarypb": {
+      "sha256": "df9f291eadc2ad77a4a0fabd83d4f2c0c2b4d8626c8f44fb0d14efc2fc81f46d",
+      "bytes": 815
+    },
+    "modules/selfie_segmentation/selfie_segmentation_landscape.tflite": {
+      "sha256": "a77d03f4659b9f6b6c1f5106947bf40e99d7655094b6527f214ea7d451106edd",
+      "bytes": 250145
+    }
+  },
+  "all_packaged_asset_bytes": 29195986,
+  "image": {
+    "url": "https://storage.googleapis.com/mediapipe-assets/pose.jpg",
+    "sha256": "c8a830ed683c0276d713dd5aeda28f415f10cd6291972084a40d0d8b934ed62b",
+    "shape": [
+      667,
+      1000,
+      3
+    ]
+  },
+  "construction_ms": 32.380770000145276,
+  "cold_first_frame_ms": 225.90145799995298,
+  "measured_frames": 60,
+  "latency_ms": {
+    "p50": 45.504985999968994,
+    "p95": 68.19666254973525,
+    "min": 43.25285100003384,
+    "max": 77.24602300004335
+  },
+  "measured_wall_seconds": 2.921469575000174,
+  "process_cpu_seconds": 4.130314842,
+  "cpu_core_equivalents": 1.4137798583782115,
+  "max_rss_mib": 400.35546875,
+  "landmark_count_patterns": [
+    [
+      33,
+      0,
+      21,
+      21
+    ],
+    [
+      33,
+      468,
+      21,
+      21
+    ]
+  ],
+  "sequence_shape": [
+    30,
+    1662
+  ],
+  "dtype": "float64",
+  "all_finite": true,
+  "coordinate_ranges_excluding_missing": {
+    "pose_landmarks": {
+      "min": [
+        0.2784420847892761,
+        0.4063674807548523,
+        -0.25909534096717834,
+        0.9389351606369019
+      ],
+      "max": [
+        0.7276784181594849,
+        0.9468017816543579,
+        0.03965992107987404,
+        0.9999916553497314
+      ],
+      "zero_frames": 0
+    },
+    "face_landmarks": {
+      "min": [
+        0.4529525935649872,
+        0.3938145637512207,
+        -0.01632794551551342
+      ],
+      "max": [
+        0.49651777744293213,
+        0.46995025873184204,
+        0.02806810662150383
+      ],
+      "zero_frames": 21
+    },
+    "left_hand_landmarks": {
+      "min": [
+        0.7048068642616272,
+        0.4614521563053131,
+        -0.014667939394712448
+      ],
+      "max": [
+        0.7502918839454651,
+        0.4739873707294464,
+        5.009907866337926e-08
+      ],
+      "zero_frames": 0
+    },
+    "right_hand_landmarks": {
+      "min": [
+        0.24866580963134766,
+        0.44807255268096924,
+        -0.009548843838274479
+      ],
+      "max": [
+        0.2940330505371094,
+        0.459998220205307,
+        5.847883954857025e-08
+      ],
+      "zero_frames": 0
+    }
+  },
+  "cold_missing_blocks": [
+    "face_landmarks"
+  ],
+  "blank_all_zero": true,
+  "named_output_packing_exact": true,
+  "unmirrored_wrist_diagnostics": {
+    "left": {
+      "hand_xy": [
+        0.7052093744277954,
+        0.46963709592819214
+      ],
+      "pose_wrist_xy": [
+        0.6977919340133667,
+        0.47335004806518555
+      ],
+      "same_side_distance": 0.008294843933022747,
+      "opposite_side_distance": 0.4083604363063747
+    },
+    "right": {
+      "hand_xy": [
+        0.2929767370223999,
+        0.4589847922325134
+      ],
+      "pose_wrist_xy": [
+        0.2968897223472595,
+        0.46386581659317017
+      ],
+      "same_side_distance": 0.006255865484638497,
+      "opposite_side_distance": 0.40506999924701087
+    }
+  },
+  "flipped_input_diagnostic": {
+    "left_wrist_xy": [
+      0.7059996724128723,
+      0.45947226881980896
+    ],
+    "right_wrist_xy": [
+      0.2964242100715637,
+      0.4699068069458008
+    ],
+    "note": "Separate graph with deliberately flipped pixels; no automatic side swap. Not a dataset-mirror validation."
+  },
+  "classifier_trained": false,
+  "dataset_compatibility": "layout plausible; extractor version/settings/mirror/FPS unconfirmed",
+  "limits": "Single process on development host; includes Python/MediaPipe imports in peak RSS. Excludes JPEG decode, network, classifier, real motion and concurrent sessions.",
+  "timing_status": "Unpaced throughput run; 100 ms in contract is a proposed capture target, not measured capture timing or archive FPS.",
+  "legacy_internal_timestamp_increment_us": 33333
+}

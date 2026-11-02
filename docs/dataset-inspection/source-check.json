@@ -1,0 +1,36 @@
+{
+  "checked_on": "2026-11-02",
+  "datacite_url": "https://api.datacite.org/dois/10.17632/y8vg69brn2.1",
+  "datacite_response_sha256": "21e0f835d9061c62e5876bd314065ae69aeb80f2d08b62d1565b72e7ebe41834",
+  "doi": "10.17632/y8vg69brn2.1",
+  "title": "Dataset of Common phrases in Indian Sign Language",
+  "publisher": "Mendeley",
+  "publication_year": 2022,
+  "landing_url": "https://data.mendeley.com/datasets/y8vg69brn2/1",
+  "contributors": [
+    "Kaushik Sanjiv Gurav",
+    "Shreya Jadhav",
+    "Aayushi Gandhi",
+    "Yash Khatri",
+    "Shweta Tiwaskar"
+  ],
+  "license": [
+    {
+      "rights": "Creative Commons Attribution 4.0 International",
+      "rightsUri": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "schemeUri": "https://spdx.org/licenses/",
+      "rightsIdentifier": "cc-by-4.0",
+      "rightsIdentifierScheme": "SPDX"
+    }
+  ],
+  "content_url": null,
+  "sizes": [],
+  "formats": [],
+  "publisher_metadata_status": 403,
+  "publisher_file_api_status": 403,
+  "remote_file_checksum": null,
+  "remote_class_list": null,
+  "local_labels_preserved": 41,
+  "i_me_status": "complete nested label path; not an alias merge or excluded class",
+  "conclusion": "DOI and declared licence corroborated; no byte provenance or 40/41 explanation established"
+}
