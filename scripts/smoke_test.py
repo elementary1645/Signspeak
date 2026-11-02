@@ -24,6 +24,12 @@ def main():
         assert response.status_code == 200, response.text
         result = response.json()
         assert result['hands'] == [] and result['features'] is None and not result['saved'], result
+        recognition = client.post('/frames', json={
+            'image': base64.b64encode(image.getvalue()).decode(), 'timestamp_ms': 1,
+            'recognize': True, 'stream_id': 'real-cpu-smoke'}).json()
+        assert recognition['prediction']['state'] == 'no_hand'
+        assert recognition['prediction']['stable_label'] is None
+        assert recognition['frame_latency_ms'] >= 0
         print('PASS: CPU Tasks initialization, browser assets, health, JPEG → detection → no-hand response')
 
 

@@ -1,16 +1,49 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>SignSpeak Local · Collection Lab</title>
-<style>body{font:17px system-ui;background:#101e2b;color:#edf7fb;max-width:960px;margin:40px auto;padding:20px}h1{color:#6ce4c6}label{display:inline-block;margin:10px}input,select,button{font:inherit;padding:8px;border-radius:6px}button{cursor:pointer}#stage{position:relative;width:640px;max-width:100%}video,canvas{width:100%;display:block}#overlay{position:absolute;inset:0}#status{padding:16px;background:#223747}small{display:block}</style>
-<h1>SignSpeak Local</h1><p>Human Impact · Phase 1 collection lab</p>
-<p>Live hand landmarks only. No sign predictions. Images are processed in memory; saving features requires explicit collection.</p>
-<button id="camera">Enable camera</button><button id="close">Close camera</button>
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>SignSpeak Local · ISL Lab</title>
+<style>
+:root{color-scheme:dark}body{font:17px system-ui;background:#101e2b;color:#edf7fb;max-width:1040px;margin:32px auto;padding:20px}h1{color:#6ce4c6}h2{font-size:1.3em}label{display:inline-block;margin:10px 10px 10px 0}input,select,button,textarea{font:inherit;padding:8px;border:1px solid #617686;border-radius:6px;max-width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{cursor:default;opacity:.5}#stage{position:relative;width:640px;max-width:100%;background:#182b3a}video,canvas{width:100%;display:block}#overlay{position:absolute;inset:0}#status,#prediction,.panel{padding:16px;background:#223747;border-radius:10px;margin-top:16px}small{display:block}a{color:#6ce4c6}progress{width:100%}pre{white-space:pre-wrap}textarea{width:100%}.wide{display:block}.wide input{width:100%}details{margin:30px 0}#prediction strong{font-size:1.6em}
+</style>
+<h1>SignSpeak Local</h1><p>Human Impact · Authentic ISL recognition lab</p>
+<p>Review signs, collect consenting samples, then recognize your trained static vocabulary. Camera images are processed in memory.</p>
+<button id="camera">Enable camera</button> <button id="close">Close camera</button>
 <div id="stage"><video id="video" autoplay muted playsinline></video><canvas id="overlay"></canvas></div>
-<label>Verified sign <select id="sign"></select></label>
+<p id="health" role="status">Checking services…</p>
+<label><input id="recognize" type="checkbox"> Live recognition (saving off)</label>
+<div id="prediction" aria-live="polite"><strong id="label">Recognition off</strong><p id="confidence"></p><p id="latency"></p><p id="event"></p></div>
+<section class="panel" aria-labelledby="collect-title">
+<h2 id="collect-title">Collect reviewed signs</h2>
+<label>Verified sign <select id="sign" aria-label="Verified target sign"></select></label>
 <label>Signer pseudonym <input id="signer" maxlength="48" pattern="[A-Za-z0-9_-]+"></label>
 <label>Session ID <input id="session" maxlength="48" pattern="[A-Za-z0-9_-]+"></label>
 <label>Sampling Hz (0.5–5) <input id="rate" type="number" value="2" min="0.5" max="5" step="0.5"></label>
+<label>Goal per recording <input id="goal" type="number" value="30" min="1" max="500"></label>
 <label><input id="consent" type="checkbox"> I consent to saving labelled landmark features and pseudonyms.</label>
-<button id="start" disabled>Start collection</button><button id="stop">Stop collection</button>
-<p id="status" role="status">Camera off</p><p>Saved this page session: <span id="count">0</span></p>
-<small>Keep the Codespaces port private. Use voluntary pseudonyms; never enter names or contact details. Closing the camera stops all tracks.</small>
-<script src="/collector.js" defer></script></html>
+<div><button id="start" disabled>Start new recording</button> <button id="pause" disabled>Pause</button> <button id="resume" disabled>Resume</button> <button id="stop">Stop collection</button></div>
+<p id="status" role="status">Camera off</p><p id="quality">No detection yet</p>
+<progress id="progress" value="0" max="30" aria-label="Recording sample progress"></progress>
+<p>Saved this recording: <span id="take-count">0</span> · Total this page: <span id="count">0</span></p>
+<p id="recording">No active recording</p>
+<button id="audit">Check saved dataset quality</button><pre id="audit-result" role="status"></pre>
+</section>
+<details class="panel"><summary>Human vocabulary review · review signs individually</summary>
+<p>Each candidate remains unverified until you inspect an exact official reference. Dictionary name matches do not verify gestures. Export a review for one sign, then apply it using the documented local command.</p>
+<form id="review-form">
+<label>Candidate <select id="review-label"></select></label>
+<p><a id="lookup" target="_blank" rel="noopener noreferrer">Open official lookup list</a></p><p id="research"></p>
+<label class="wide">Exact official entry/video URL <input id="reference-url" type="url" required placeholder="https://…"></label>
+<label>Exact reference ID <input id="reference-id" required maxlength="200"></label>
+<label>Reviewer pseudonym <input id="reviewer" required pattern="[A-Za-z0-9_-]{1,48}"></label>
+<label>Review date <input id="review-date" type="date" required></label>
+<label>Hands <select id="review-hands" required><option value="">Select…</option><option value="1">One</option><option value="2">Two</option></select></label>
+<div id="review-cues"></div>
+<label class="wide">Observed movement, configuration, cue requirements and suitability reasoning <textarea id="review-notes" required minlength="10" maxlength="4000" rows="4"></textarea></label>
+<label><input id="human-inspected" type="checkbox" required> I personally watched the full sign reference, including movement.</label>
+<label><input id="official-confirmed" type="checkbox" required> I confirmed its ISLRTC provenance and exact variant.</label>
+<label>Decision <select id="review-decision"><option value="exclude">Exclude from hands-v1</option><option value="approve">Approve for static collection</option></select></label>
+<button type="submit">Download this sign’s review</button><p id="review-status" role="status"></p>
+</form></details>
+<small>Keep Codespaces port 8000 private. Enter voluntary pseudonyms only. Preview sends images to your Python server; no video is stored. Closing the camera stops all tracks.</small>
+<script src="/collector.js" defer></script><script src="/review.js" defer></script>
+</html>

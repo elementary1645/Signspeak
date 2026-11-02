@@ -31,7 +31,7 @@ as calibrated landmark confidence. Low handedness scores, duplicate sides, wrong
 hand counts and invalid schemas cannot be saved. Schema changes require a new version
 and recollection or explicit migration; never mix feature versions in training.
 
-The server limits accepted samples for each signer/session/recording/class to at most
+The server limits accepted samples for each signer/session/class (across recording takes) to at most
 5 Hz, rejecting feature RMS changes below 0.015 versus the last accepted sample.
 This is a sampling heuristic, not proof of independent examples. Use varied repetitions,
 lighting, camera positions and multiple signers/sessions. A single recording's adjacent
@@ -42,3 +42,22 @@ All JSONL lines are validated; duplicate sample IDs are rejected by the training
 Labels must still match the reviewed registry. Store registry revisions alongside local
 experiments. Metrics include split groups and sample counts. Local reports contain
 pseudonyms and are ignored with model artifacts.
+
+
+## Phase 2 integrity and review changes
+
+The numeric record schema remains `hands-v1`; existing normalized coordinates are not
+replaced. The reviewed registry now requires explicit human inspection, official-source
+confirmation, dated review and per-cue suitability decisions. Legacy `verified: true`
+entries without these attestations fail closed and must be actually reviewed, not
+silently migrated into approval. There were no real approved entries at this migration.
+
+Training now also rejects recording IDs reused across labels/signers/sessions and
+repeated frame timestamps within the same take. The audit warns about exact duplicate
+feature vectors across all records. Deduplication memory is keyed by signer/session/class,
+so restarting a take does not reset the sampling filter; server restart still does.
+Use globally unique recording IDs (browser UUIDs) and never reuse one for another take.
+
+Model bundles use a separate `bundle_version: 2` with metadata and vocabulary hashes.
+A bundle-version change does not change the underlying feature schema. Phase 1 bundles
+must be retrained to supply the Phase 2 compatibility and confidence contract.

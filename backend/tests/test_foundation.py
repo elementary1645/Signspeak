@@ -25,7 +25,11 @@ def reviewed(monkeypatch, tmp_path):
     path = tmp_path / 'vocabulary.json'
     path.write_text(json.dumps([{'label':'TEST_FIXTURE', 'verified':True, 'static':True,
         'reference_url':'https://example.invalid/test-only', 'reviewer':'unit-test',
-        'reference_id':'fixture', 'hand_count':1}]))
+        'reference_id':'fixture', 'hand_count':1,
+        'reviewed_on':'2026-11-02', 'human_inspected':True, 'official_source_confirmed':True,
+        'motion_required':False, 'facial_cues_required':False, 'body_cues_required':False,
+        'relative_hand_position_required':False, 'hands_v1_suitable':True,
+        'notes':'Synthetic fixture for software testing only.'}]))
     monkeypatch.setattr(dataset, 'VOCABULARY', path)
 
 
@@ -152,7 +156,7 @@ def test_training_artifacts(reviewed, monkeypatch, tmp_path):
     for signer in range(8):
         for label, ref in [('TEST_FIXTURE','fixture'), ('SECOND_FIXTURE','second')]:
             records.append(record(sign_class=label, vocabulary_reference_id=ref,
-                signer_id=f's{signer}', sample_id=f'{signer}-{label}'))
+                signer_id=f's{signer}', recording_id=f'take-{signer}-{label}', sample_id=f'{signer}-{label}'))
     path = tmp_path / 'fixture.jsonl'
     path.write_text('\n'.join(r.model_dump_json() for r in records))
     for algorithm in ['rf', 'svm']:

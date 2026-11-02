@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 import numpy as np
 from .features import SCHEMA, DIM
+from .vocabulary import verified_entries
 
 ROOT = Path(__file__).resolve().parents[2]
 VOCABULARY = ROOT / 'data/metadata/vocabulary.json'
@@ -11,9 +12,7 @@ VOCABULARY = ROOT / 'data/metadata/vocabulary.json'
 
 def vocabulary():
     entries = json.loads(VOCABULARY.read_text())
-    return {e['label']: e for e in entries if e.get('verified') is True
-            and e.get('static') is True and e.get('reference_url', '').startswith('https://')
-            and e.get('reviewer') and e.get('reference_id') and e.get('hand_count') in (1, 2)}
+    return verified_entries(entries)
 
 
 class Record(BaseModel):
