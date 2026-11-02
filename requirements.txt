@@ -1,0 +1,10 @@
+# Tested on Python 3.12; CPU only
+mediapipe==0.10.32
+fastapi
+uvicorn[standard]
+pillow
+numpy
+scikit-learn
+joblib
+pytest
+httpx
