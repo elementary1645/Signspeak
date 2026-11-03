@@ -10,7 +10,7 @@ from .takes import NONE_PROMPTS, validate_take
 ROOT = Path(__file__).resolve().parents[2]
 TRANSLATIONS = ROOT / 'data/metadata/translations.json'
 SERVER_TAKES = ROOT / 'data/raw/takes'
-APP_VERSION = '0.3.0'
+APP_VERSION = '0.4.0'
 TAKES_PER_SIGN = 8
 TAKES_NONE = 16
 MAX_TAKE_BYTES = 1_000_000

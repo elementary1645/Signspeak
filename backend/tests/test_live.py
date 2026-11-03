@@ -414,3 +414,12 @@ def test_only_manifest_models_are_served(no_model):
     assert no_model.get('/models/manifest.json').status_code == 404
     assert no_model.get('/models/../app/main.py').status_code == 404
     assert no_model.get('/lab').status_code == 200
+
+
+def test_low_fps_metadata_is_optional_and_validated(registry):
+    t = X.take('SYNTH_CIRCLE', 'synthA', reference_url=URL.format('SYNTH_CIRCLE'))
+    assert validate_take(t)[0]['low_fps'] is None  # takes recorded before 0.4 stay valid
+    meta, _ = validate_take(dict(t, low_fps=True, measured_fps=9.4, capture_ms=3000))
+    assert meta['low_fps'] is True and meta['measured_fps'] == 9.4
+    with pytest.raises(ValueError):
+        validate_take(dict(t, measured_fps=-1))

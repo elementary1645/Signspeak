@@ -42,6 +42,9 @@ class TakeMeta(BaseModel):
     capture_ms: int = Field(ge=500, le=5000)
     consent: Literal[True]
     preview_mirrored: bool
+    # Optional, added after collection started: older takes without them stay valid.
+    low_fps: Optional[bool] = None
+    measured_fps: Optional[float] = Field(default=None, ge=0, le=240)
 
     @model_validator(mode='after')
     def label_rules(self):

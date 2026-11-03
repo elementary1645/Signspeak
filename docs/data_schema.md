@@ -94,6 +94,9 @@ below. Code: [protocol.py](../backend/live/protocol.py), [features.py](../backen
 (the official link the signer copied; `null` for NONE), `none_prompt` (NONE only),
 `app_version`, `recorded_at` (ISO UTC), `capture_ms` (2000), `consent` (must be `true`),
 `preview_mirrored`, `frames` (lm-v1 list, strictly increasing `t_ms`).
+Optional (collector >= 0.4, older takes omit them): `low_fps` (`true` when the take's
+measured rate was below 12 fps) and `measured_fps`. Since 0.4 the collector stops at 26
+raw frames or 3.0 s, whichever comes first, and `capture_ms` is the actual capture length.
 `scripts/merge_takes.py` validates and merges takes into `data/processed/takes.jsonl`.
 
 ## hp-v1 features (server only; training and inference share the code)

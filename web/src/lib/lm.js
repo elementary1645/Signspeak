@@ -2,7 +2,7 @@
 // feature engineering (backend/live/features.py), so nothing here affects the model.
 export const FRAME_SCHEMA = 'lm-v1';
 export const TAKE_SCHEMA = 'lm-take-v1';
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.4.0';
 export const TASKS_VISION_VERSION = '0.10.35';
 
 const round = v => Math.round(v * 1e5) / 1e5;
