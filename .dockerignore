@@ -1,0 +1,17 @@
+# Never ship collected data, environments or build output into the image.
+.git
+.venv
+**/__pycache__
+.pytest_cache
+.env
+.env.*
+experiments/
+data/raw/
+data/processed/
+# data/metadata (vocabulary + translations) IS needed at runtime.
+web/node_modules/
+web/dist/
+web/public/mediapipe/
+backend/models/*.task
+# backend/models/live/ (the trained bundle, when present) IS shipped.
+*.tmp
