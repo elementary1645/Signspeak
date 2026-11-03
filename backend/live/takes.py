@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from backend.app.vocabulary import check_reference_url
 from .features import PERIOD_MS, WINDOW
 from .capture import validate_timing
-from .hand_validation import require_accepted_hands
+from .hand_validation import POLICY, require_accepted_hands
 from .protocol import validate_frames
 from .vocab import LABEL_PATTERN, NONE_LABEL
 
@@ -46,7 +46,7 @@ class TakeMeta(BaseModel):
     preview_mirrored: bool
     # Optional, added after collection started: older takes without them stay valid.
     capture_protocol: Optional[Literal["hp-v1-timed-1", "hp-v2-8fps-timed-1"]] = None
-    hand_validation: Optional[Literal["pose-wrist-v1", "hand-evidence-v2"]] = None
+    hand_validation: Optional[Literal["pose-wrist-v1", "hand-evidence-v2", "hand-evidence-v3"]] = None
     low_fps: Optional[bool] = None
     measured_fps: Optional[float] = Field(default=None, ge=0, le=240)
 
@@ -79,8 +79,12 @@ def validate_take(raw):
     if meta.capture_protocol is not None:
         validate_timing(frames, meta.capture_protocol)
     if meta.capture_protocol == 'hp-v2-8fps-timed-1':
+        # The current policy's sequence verdict over this take's own frames only (no pre-take history).
         require_accepted_hands(frames)
-    return meta.model_dump(by_alias=True), frames
+    out = meta.model_dump(by_alias=True)
+    # Takes recorded under an older observation policy stay readable, but are tagged.
+    out['hand_validation_current'] = meta.hand_validation == POLICY['policy']
+    return out, frames
 
 
 def content_hash(raw):

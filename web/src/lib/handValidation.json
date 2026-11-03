@@ -1,5 +1,5 @@
 {
-  "policy": "hand-evidence-v2",
+  "policy": "hand-evidence-v3",
   "minPoseVisibility": 0.5,
   "minShoulderWidthFraction": 0.03,
   "maxWristDistanceShoulders": 0.5,
@@ -13,5 +13,10 @@
   "faceRadiusShoulders": 0.5,
   "minPalmPixels": 3,
   "minPalmAreaRatio": 0.005,
-  "identityConflictShoulders": 0.5
+  "identityConflictShoulders": 0.5,
+  "poseCoordinateMargin": 0.5,
+  "faceEntryWindowMs": 1500,
+  "maxTrackGapMs": 300,
+  "maxTrackStepShoulders": 0.6,
+  "maxPalmScaleRatio": 1.6
 }

@@ -295,7 +295,9 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
     counts = {'takes': len(takes), 'takes_per_label': dict(sorted(label_counts.items())),
               'signers': len(set(data['signer'])), 'sessions': len(set(data['session'])),
               'windows': int((~data['mirrored']).sum()), 'mirrored_windows': int(data['mirrored'].sum()),
-              'takes_dropped_unverified': dropped}
+              'takes_dropped_unverified': dropped,
+              # Recorded policy per take; every take was re-checked under the current policy above.
+              'takes_per_hand_validation': dict(sorted(Counter(m.get('hand_validation') or 'unrecorded' for m, _ in takes).items()))}
     model = fitted[chosen]
     bundle = {
         'bundle_version': BUNDLE_VERSION, 'schema': temporal.SCHEMA, 'feature_dim': temporal.SUMMARY_DIM,

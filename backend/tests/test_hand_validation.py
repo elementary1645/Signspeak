@@ -42,7 +42,7 @@ def test_geometry_configuration_is_explicit():
     frame['hands'][0]['landmarks'][0, 0] += .1
     assert len(filter_hands(frame)['hands']) == 1
     assert not filter_hands(frame, {'maxWristDistanceShoulders': .2})['hands']
-    assert POLICY['policy'] == 'hand-evidence-v2'
+    assert POLICY['policy'] == 'hand-evidence-v3'
 
 
 def test_live_lower_stream_filters_before_buffer_and_frame_features(monkeypatch):
@@ -88,7 +88,8 @@ def test_live_uncertainty_clears_previous_accepted_history(monkeypatch):
     raised = next(c['frame'] for c in CASES if c['name'] == 'right raised above shoulder')
     stream.push(raised)
     assert stream.frames and stream.vectors[-1][149] == 1 and stream.vectors[-1][151] == 1
-    reply = stream.push(dict(CASES[0]['frame'], t_ms=1125))
+    # v3: after a >300 ms gap the earlier right-side hand gives the facial candidate no face entry.
+    reply = stream.push(dict(CASES[0]['frame'], t_ms=1500))
     assert reply['state'] == 'UNCERTAIN_HANDS'
     assert not stream.frames and not stream.vectors
 

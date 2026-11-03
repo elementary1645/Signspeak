@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { POLICY, policyMatches } from '../lib/handValidation.js';
+import { POLICY, policyMatches, validateSequence } from '../lib/handValidation.js';
+import { startBlockMessage } from '../lib/framing.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import DiagnosticCapture from '../lib/DiagnosticCapture.jsx';
@@ -27,6 +28,7 @@ export default function Collect() {
   const [takes, setTakes] = useState([]);
   const [storage, setStorage] = useState({ loaded: false, persistent: false, migrated: 0 });
   const [notice, setNotice] = useState(null);
+  const [startBlock, setStartBlock] = useState(null);
   const capture = useRef(null);
   const diagnosticBuffer = useRef(null);
   if (!diagnosticBuffer.current) diagnosticBuffer.current = new DiagnosticBuffer(100);
@@ -40,7 +42,9 @@ export default function Collect() {
     const frames = c.frames;
     const durationMs = Math.round(Math.min(CAPTURE_MAX_MS, performance.now() - c.start));
     const verdict = { ...takeVerdict(frames, c.protocol), uncertainFrames: c.uncertainFrames };
-    verdict.valid = verdict.valid && !c.uncertainFrames;
+    // The server judges a take on its own frames only (no pre-take history); check the same way.
+    verdict.handEvidence = c.protocol !== 'hp-v2-8fps-timed-1' || validateSequence(frames).every(r => r.diagnostics.recordable);
+    verdict.valid = verdict.valid && !c.uncertainFrames && verdict.handEvidence;
     setPending({ frames, quality: frameQuality(frames), verdict, protocol: c.protocol, label: c.label, prompt: c.prompt, durationMs });
     setPhase('review');
   }, []);
@@ -56,6 +60,8 @@ export default function Collect() {
     if (c && details.t_ms >= c.start) c.uncertainFrames++;
   }, []);
   const cam = useLandmarks({ onFrame, onUncertain, diagnosticBuffer: diagnosticBuffer.current, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
+  const camRef = useRef(cam);
+  camRef.current = cam;
 
   useEffect(() => {
     Promise.all([fetch('/api/config').then(r => r.json()), fetch('/api/vocabulary').then(r => r.json())])
@@ -88,10 +94,15 @@ export default function Collect() {
   function record() {
     if (!ready || phase !== 'idle') return;
     setNotice(null);
+    const blocked = startBlockMessage(cam.diagnostics, cam.framingWarn);
+    setStartBlock(blocked);
+    if (blocked) return;
     setPhase('countdown');
     [3, 2, 1].forEach((n, i) => timers.current.push(setTimeout(() => setCount(n), i * 1000)));
     setCount(3);
     timers.current.push(setTimeout(() => {
+      const late = startBlockMessage(camRef.current.diagnostics, camRef.current.framingWarn);
+      if (late) { setStartBlock(late); setPhase('idle'); return; }
       setPhase('recording');
       const start = performance.now();
       // Keep the protocol selected at the start; never retag a pending take.
@@ -203,6 +214,7 @@ export default function Collect() {
         {cam.stats.fps != null && cam.stats.fps < spec.minFps && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {spec.minFps}. Close other apps or tabs and improve the lighting. Takes outside the selected timing contract cannot be kept.</p>}
 
         {phase === 'idle' && <button className="btn primary" onClick={record} disabled={!ready}>Record take</button>}
+        {phase === 'idle' && startBlock && <p className="notice warn" role="alert">{startBlock}</p>}
         {!ready && phase === 'idle' && <p className="muted">Start the camera, enter a pseudonym and session, and tick consent.</p>}
         {phase === 'countdown' && <div className="countdown" aria-live="assertive">{count}</div>}
         {phase === 'recording' && <div className="countdown" aria-live="assertive">Recording…</div>}
@@ -212,7 +224,8 @@ export default function Collect() {
               ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
               upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
             {verdict.uncertainFrames > 0 && <p className="notice error">Uncertain hand detections occurred during this recording. Discard and inspect candidate diagnostics; no uncertain landmarks were recorded.</p>}
-            {!verdict.valid && !verdict.uncertainFrames && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
+            {verdict.handEvidence === false && !verdict.uncertainFrames && <p className="notice error">Within this take alone, a hand in the face zone did not first appear outside it. The server checks each take on its own frames. Discard and start with your hands away from your face.</p>}
+            {!verdict.valid && !verdict.uncertainFrames && verdict.handEvidence !== false && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
             {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
             {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
             {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}

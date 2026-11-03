@@ -1,5 +1,6 @@
 import { useLayoutEffect } from 'react';
 import { drawOverlay, drawUncertainOverlay, displaySides } from './lm.js';
+import { FRAMING_MESSAGE } from './framing.js';
 
 const SIDE = { L: 'your left', R: 'your right', '?': 'side unknown' };
 
@@ -59,6 +60,7 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
           </span>
         )}
       </div>
+      {cam.status === 'running' && cam.framingWarn && <p className="notice warn" role="status">{FRAMING_MESSAGE}</p>}
       {cam.status === 'running' && cam.diagnostics?.rawCount > cam.diagnostics?.acceptedCount && <p className="notice warn">Hand evidence is uncertain or invalid. Dashed yellow landmarks are preview only and cannot be recorded. Missing body landmarks do not mean no hands; inspect the reason below.</p>}
       {showDiagnostics && cam.status === 'running' && cam.diagnostics && <details>
         <summary>Local hand validation diagnostics</summary>

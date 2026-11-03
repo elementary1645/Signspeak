@@ -174,7 +174,20 @@ try {
     const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).rawCount === 1 && JSON.parse(raw).acceptedCount === 0;
   });
+  // hand-evidence-v3: a take is judged on its own frames, so it cannot start with a face-zone candidate.
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
+  await controlled.getByText('Start with your hands away from your face.', { exact: false }).waitFor({ timeout: 5000 });
+  assert.equal(await controlled.getByRole('button', { name: 'Record take', exact: true }).count(), 1);
+  console.log('Face-zone candidate refuses the start of a take.');
+  // A face candidate appearing during a take still blocks the whole take.
+  await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
+    return raw && JSON.parse(raw).state === 'none';
+  });
+  await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
+  await controlled.getByText('Recording…', { exact: true }).waitFor({ timeout: 8000 });
+  await controlled.evaluate(() => { window.validationScene = 'face false positive despite high handedness score'; });
   const controlledKeep = controlled.getByRole('button', { name: 'Keep', exact: true });
   await controlledKeep.waitFor({ timeout: 15000 });
   assert.equal(await controlledKeep.isDisabled(), true);
@@ -223,10 +236,10 @@ try {
     open.onerror = () => reject(open.error);
   }));
   assert.equal(saved.length, 2);
-  assert.equal(saved[0].hand_validation, 'hand-evidence-v2');
+  assert.equal(saved[0].hand_validation, 'hand-evidence-v3');
   assert.ok(saved.some(t => t.frames.length === 16 && t.frames.every(f => f.hands.length === 0)));
   assert.ok(saved.some(t => t.frames.length === 16 && t.frames.every(f => f.hands.length === 2)));
-  assert.ok(saved.every(t => t.hand_validation === 'hand-evidence-v2'));
+  assert.ok(saved.every(t => t.hand_validation === 'hand-evidence-v3'));
   console.log('Uncertain face take was not saved; only the distinct no-candidate and accepted-raised-hand takes exist in the isolated browser dataset.');
   // Capture/freeze is independent of live tracking and of take storage.
   const diagnosticJson = controlled.getByLabel('Diagnostic observation JSON', { exact: true });

@@ -19,7 +19,7 @@ from backend.app.recognition import Stabilizer
 from . import features, vocab
 from .model import LiveModel, model_path
 from .protocol import validate_frame
-from .hand_validation import assess_hands
+from .hand_validation import HandEvidenceTracker
 
 
 
@@ -104,6 +104,10 @@ class Session:
         self.service = service
         self.frames = deque()
         self.vectors = deque()  # frame_vector() of each buffered frame, computed once on arrival
+        self.assessments = deque()  # hp-v2-8fps: tracker verdict of each buffered frame
+        # Face-entry history survives buffer resets (uncertain frames, client 'reset' messages),
+        # like the browser's tracker; it restarts only with a new session or a clock jump.
+        self.hands = HandEvidenceTracker()
         self.count = 0
         self.temporal = None
         self.stabilizer = Stabilizer()
@@ -113,6 +117,7 @@ class Session:
     def reset(self):
         self.frames.clear()
         self.vectors.clear()
+        self.assessments.clear()
         self.count = 0
         self.stabilizer = Stabilizer()
 
@@ -125,8 +130,9 @@ class Session:
         if self.temporal is not temporal:
             self.reset()  # never reuse cached vectors across a feature/observation-policy module change
             self.temporal = temporal
+        assessment = None
         if temporal.SCHEMA == 'hp-v2-8fps':
-            assessment = assess_hands(frame)
+            assessment = self.hands.assess(frame)
             if not assessment['recordable']:
                 self.reset()  # uncertainty is not a no-hand frame or a classifier input
                 status = self.service.status()
@@ -141,10 +147,16 @@ class Session:
         if self.frames and frame['t_ms'] <= self.frames[-1]['t_ms']:
             self.reset()  # camera restarted or clock jumped: start a fresh buffer
         self.frames.append(frame)
-        self.vectors.append(temporal.frame_vector(frame))
+        if assessment is None:
+            self.vectors.append(temporal.frame_vector(frame))
+        else:
+            self.assessments.append(assessment)
+            self.vectors.append(temporal.assessed_vector(assessment))
         while self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] > BUFFER_MS:
             self.frames.popleft()
             self.vectors.popleft()
+            if self.assessments:
+                self.assessments.popleft()
         self.count += 1
         if self.count % PREDICT_EVERY:
             return None
@@ -166,7 +178,10 @@ class Session:
             return dict(base, state='NO_HAND')
         temporal = getattr(self.service.model, 'features', features)
         try:
-            window = temporal.latest_window(list(self.frames), list(self.vectors))
+            if self.assessments:
+                window = temporal.latest_window(list(self.frames), list(self.vectors), list(self.assessments))
+            else:
+                window = temporal.latest_window(list(self.frames), list(self.vectors))
         except ValueError:
             self.stabilizer.update({'state': 'detecting', 'label': None}, now)
             return dict(base, state='DETECTING', code='INSUFFICIENT_TIMING',

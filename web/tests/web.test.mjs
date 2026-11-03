@@ -407,3 +407,86 @@ test('diagnostic subscriptions can detach or fail without interrupting observati
   assert.equal(buffer.size, 2);
   assert.equal(buffer.latest().t_ms, 2);
 });
+
+// hand-evidence-v3. laptop_capture_*.json are real laptop diagnostics stored with the signer's
+// consent under backend/tests/fixtures only; their pose holds just points 0 and 11-16 (the
+// rest are visibility-0 placeholders the validator ignores). hand-sequences.json is synthetic
+// and asserted identically by backend/tests/test_hand_evidence_v3.py.
+import fs from 'node:fs';
+import handSequences from './fixtures/hand-sequences.json' with { type: 'json' };
+import { HandEvidenceTracker, validateSequence } from '../src/lib/handValidation.js';
+import { FRAMING_MESSAGE, FACE_START_MESSAGE, FramingMonitor, startBlockMessage } from '../src/lib/framing.js';
+const capture = name => {
+  const c = JSON.parse(fs.readFileSync(new URL(`../../backend/tests/fixtures/laptop_capture_${name}.json`, import.meta.url)));
+  const pose = Array.from({ length: 33 }, () => [0.5, 0.5, 0, 0]);
+  pose[0] = c.poseNose; [pose[11], pose[12]] = c.poseShoulders; [pose[13], pose[14]] = c.poseElbows;
+  [pose[15], pose[16]] = c.raw[0].poseWrists.map(w => w.coordinates);
+  return { t_ms: c.t_ms, w: c.input.width, h: c.input.height, pose,
+    hands: c.raw.map(r => ({ landmarks: r.landmarks, handedness: r.handedness, score: r.handednessScore })) };
+};
+const verdictOf = r => r.diagnostics.raw[0]
+  ? (({ status, reason, side, faceEntry, trackContinuity }) => ({ status, reason, side, faceEntry, continuity: trackContinuity }))(r.diagnostics.raw[0]) : null;
+
+test('hand-evidence-v3 policy parameters are explicit', () => {
+  assert.equal(POLICY.policy, 'hand-evidence-v3');
+  assert.deepEqual([POLICY.poseCoordinateMargin, POLICY.faceEntryWindowMs, POLICY.maxTrackGapMs, POLICY.maxTrackStepShoulders, POLICY.maxPalmScaleRatio],
+    [0.5, 1500, 300, 0.6, 1.6]);
+});
+test('laptop capture 1: real raised hand with cropped shoulders/elbow is accepted right', () => {
+  const r = validateHands(capture('1_real_hand'));
+  const d = r.diagnostics.raw[0];
+  assert.deepEqual([d.status, d.reason, d.side, d.nearFace], ['accepted', 'pose-supported', 'R', false]);
+  assert.equal(d.legacyReason, 'unreliable-shoulders'); // pose-wrist-v1 comparison keeps strict bounds
+  assert.deepEqual(displaySides(r.frame), ['R']);
+});
+test('laptop captures 2 and 3: face hallucinations alone are uncertain', () => {
+  for (const name of ['2_face_hallucination', '3_chin_hallucination']) {
+    const r = validateHands(capture(name));
+    assert.equal(r.diagnostics.recordable, false, name);
+    assert.equal(r.frame.hands.length, 0, name);
+    assert.deepEqual([r.diagnostics.raw[0].reason, r.diagnostics.raw[0].nearFace], ['face-zone-without-entry', true], name);
+  }
+});
+test('hand sequences match the hand-written expectations shared with Python', () => {
+  for (const s of handSequences) assert.deepEqual(validateSequence(s.frames).map(verdictOf), s.expected, s.name);
+});
+test('real capture 1 followed 125 ms later by capture 3 or 2 never lends the hallucination an entry', () => {
+  const real = capture('1_real_hand');
+  for (const [name, reason] of [['3_chin_hallucination', 'restarted-step'], ['2_face_hallucination', 'restarted-step']]) {
+    const fake = { ...capture(name), t_ms: real.t_ms + 125 };
+    const [a, b] = validateSequence([real, fake]).map(verdictOf);
+    assert.deepEqual(a, { status: 'accepted', reason: 'pose-supported', side: 'R', faceEntry: 'not-required', continuity: 'new-track' }, name);
+    assert.deepEqual(b, { status: 'uncertain', reason: 'face-zone-without-entry', side: '?', faceEntry: 'missing', continuity: reason }, name);
+  }
+});
+test('tracker state is in diagnostics, resets on clock jump, and display sides never lose entry', () => {
+  const s = handSequences.find(c => c.name.startsWith('(a) '));
+  const tracker = new HandEvidenceTracker();
+  let last;
+  for (const f of s.frames) last = tracker.validate(f);
+  assert.deepEqual(last.diagnostics.tracker.R, { lastOutsideFaceMs: 1625, trackStartMs: 1000, trackAgeMs: 1000, gapMs: 125, faceEntered: true });
+  assert.deepEqual(displaySides(last.frame), ['R']);           // the accepted frame keeps its side
+  assert.deepEqual(displaySides({ ...last.frame }), ['?']);    // a copy re-validated without history would not
+  assert.equal(tracker.validate({ ...s.frames.at(-1), t_ms: 500 }).diagnostics.raw[0].reason, 'face-zone-without-entry');
+  tracker.validate(s.frames[0]);
+  tracker.reset();
+  assert.equal(tracker.validate(s.frames.at(-1)).diagnostics.raw[0].faceEntry, 'missing');
+});
+test('framing warning needs most of the last ~2 s to be badly framed', () => {
+  const bad = capture('1_real_hand').pose, good = handSequences[0].frames[0].pose;
+  const monitor = new FramingMonitor();
+  assert.equal(monitor.add(0, bad).warn, false);               // too few samples
+  for (let t = 125; t <= 500; t += 125) monitor.add(t, bad);
+  assert.equal(monitor.add(625, bad).warn, true);
+  for (let t = 750; t <= 2625; t += 125) monitor.add(t, good);
+  assert.equal(monitor.add(2750, good).warn, false);
+  assert.equal(new FramingMonitor().add(0, null).samples, 0);
+});
+test('collect refuses to start with any accepted or uncertain candidate in the face zone', () => {
+  const chin = validateHands(capture('3_chin_hallucination')).diagnostics;
+  assert.equal(startBlockMessage(chin), FACE_START_MESSAGE);
+  assert.equal(startBlockMessage(chin, true), `${FACE_START_MESSAGE} ${FRAMING_MESSAGE}`);
+  assert.equal(startBlockMessage(validateHands(capture('1_real_hand')).diagnostics), null);
+  assert.equal(startBlockMessage({ raw: [{ nearFace: true, status: 'rejected' }] }), null);
+  assert.equal(startBlockMessage(null), null);
+});

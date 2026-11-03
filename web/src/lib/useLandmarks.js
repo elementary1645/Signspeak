@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toFrame } from './lm.js';
-import { POLICY, validateHands } from './handValidation.js';
+import { POLICY, HandEvidenceTracker } from './handValidation.js';
+import { FramingMonitor } from './framing.js';
 import { FpsMeter } from './capture.js';
 import { FrameClock, FreshFrame, validResultPair, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
@@ -21,6 +22,7 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
   const logCandidatesRef = useRef(false);
   logCandidatesRef.current = logCandidates;
   const [diagnostics, setDiagnostics] = useState(null);
+  const [framingWarn, setFramingWarn] = useState(false);
   const overlayMs = useRef(0);
   const onOverlayDraw = useCallback(ms => { overlayMs.current = ms; }, []);
 
@@ -36,6 +38,7 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
     }
     if (videoRef.current) videoRef.current.srcObject = null;
     setDiagnostics(null);
+    setFramingWarn(false);
     setLastFrame(null);
     setStats({});
     setStatus('idle');
@@ -78,6 +81,10 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
       const timings = new TimingWindow();
       const clock = new FrameClock();
       const cadence = new InferenceCadence(effectiveFps, maxSourceFps);
+      // One decision per observation for collector, Translate, overlay and status. A new
+      // camera session always starts with fresh face-entry history.
+      const tracker = new HandEvidenceTracker({ ...handValidation, allowHandednessFallback: effectiveFps !== 15 });
+      const framing = new FramingMonitor();
       s.fresh = new FreshFrame(frame => {
         setLastFrame(frame);
         if (!frame) setDiagnostics({ stale: true, reason: 'No fresh synchronized observation; overlay cleared' });
@@ -115,14 +122,17 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
           let processMs = 0;
           if (validResultPair(hand, pose, timestamp, performance.now() - now)) {
             const rawFrame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
-            const accepted = validateHands(rawFrame, { ...handValidation, allowHandednessFallback: effectiveFps !== 15 });
+            const accepted = tracker.validate(rawFrame);
+            const view = framing.add(rawFrame.t_ms, rawFrame.pose);
+            setFramingWarn(view.warn);
             // Diagnostics only: pose elbows 13/14 as [x, y, z, visibility]; never read by admission.
             const details = { ...accepted.diagnostics, poseElbows: rawFrame.pose ? [rawFrame.pose[13], rawFrame.pose[14]] : null,
               t_ms: rawFrame.t_ms, sourceTimestamp: timestamp,
               workerTimestamps: { hand: hand.timestamp, pose: pose.timestamp },
               resultAgeMs: performance.now() - now, input: { width: input.width, height: input.height },
               detectorThresholds: { detection: POLICY.minHandDetectionConfidence, presence: POLICY.minHandPresenceConfidence,
-                tracking: POLICY.minTrackingConfidence }, presenceConfidence: null };
+                tracking: POLICY.minTrackingConfidence }, presenceConfidence: null,
+              framing: { warn: view.warn, badFraction: view.badFraction, samples: view.samples } };
             setDiagnostics(details);
             if (logCandidatesRef.current) console.table(details.raw.map(d => ({ t_ms: details.t_ms, handWrist: JSON.stringify(d.handWrist),
               handWristPixels: JSON.stringify(d.handWristPixels), handedness: d.handedness, handednessScore: d.handednessScore,
@@ -169,5 +179,5 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
     document.addEventListener('visibilitychange', visibility);
     return () => { window.removeEventListener('pagehide', stop); document.removeEventListener('visibilitychange', visibility); };
   }, [stop]);
-  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, logCandidates, setLogCandidates, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
+  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, framingWarn, logCandidates, setLogCandidates, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
 }
