@@ -58,6 +58,11 @@ def favicon():
     return _dist_file('.', 'favicon.svg')
 
 
+@router.get('/tracker-worker.js', include_in_schema=False)
+def tracker_worker():
+    return _dist_file('.', 'tracker-worker.js')
+
+
 @router.get('/mediapipe/{path:path}', include_in_schema=False)
 def mediapipe_runtime(path: str):
     return _dist_file('mediapipe', path)
@@ -68,5 +73,5 @@ def _dist_file(folder, path):
     target = (base / path).resolve()
     if not target.is_relative_to(base) or not target.is_file():
         raise HTTPException(404, 'Not found')
-    media = {'.wasm': 'application/wasm', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml'}.get(target.suffix)
+    media = {'.js': 'application/javascript', '.cjs': 'application/javascript', '.wasm': 'application/wasm', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml'}.get(target.suffix)
     return FileResponse(target, media_type=media)

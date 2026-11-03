@@ -1,8 +1,8 @@
 // Pure capture logic for /collect (unit-tested in web/tests).
-export const CAPTURE_MIN_FRAMES = 26;  // stop as soon as this many raw frames arrived...
-export const CAPTURE_MAX_MS = 3000;    // ...or after this long, whichever comes first
-export const LOW_FPS = 12;
-export const MIN_FRAMES = 15;          // server rejects shorter takes (backend/live/takes.py)
+export const CAPTURE_MIN_FRAMES = 26;  // small margin beyond the 24-frame hp-v1 window
+export const CAPTURE_MAX_MS = 3000;    // deadline for rejecting a stalled/slow recording
+export const LOW_FPS = 14;
+export const MIN_FRAMES = 24;          // minimum for new hp-v1 timed captures
 export const MIN_SPAN_MS = 1380;
 
 // Rolling frames-per-second over the last ~1 s of frame timestamps.
@@ -36,7 +36,12 @@ export function takeVerdict(frames) {
   return {
     fps,
     lowFps: fps < LOW_FPS,
-    valid: frames.length >= MIN_FRAMES && span >= MIN_SPAN_MS,
+    // 24 frames span 23/15 seconds; allow modest scheduler jitter, never long holes.
+    span,
+    maxGap: Math.max(0, ...frames.slice(1).map((f, i) => f.t_ms - frames[i].t_ms)),
+    valid: frames.length >= MIN_FRAMES && span >= MIN_SPAN_MS && span <= 1850
+      && fps >= LOW_FPS && fps <= 17
+      && frames.every((f, i) => Number.isFinite(f.t_ms) && (!i || (f.t_ms > frames[i - 1].t_ms && f.t_ms - frames[i - 1].t_ms <= 100))),
   };
 }
 

@@ -14,3 +14,4 @@ if (!existsSync(source)) {
 mkdirSync(target, { recursive: true });
 cpSync(source, target, { recursive: true });
 console.log(`copy-wasm: ${source} -> ${target}`);
+cpSync(join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'vision_bundle.cjs'), join(root, 'public', 'mediapipe', 'vision_bundle.cjs'));

@@ -101,7 +101,7 @@ test('fps meter and low_fps verdict', () => {
   assert.ok(Math.abs(ok.fps - 15) < 1e-6 && ok.lowFps === false && ok.valid === true);
   const slow = takeVerdict(framesAt(8, 24));
   assert.equal(slow.lowFps, true);
-  assert.equal(slow.valid, true);           // low fps is flagged, not dropped
+  assert.equal(slow.valid, false);          // slow capture cannot satisfy hp-v1
   assert.equal(takeVerdict(framesAt(15, 14)).valid, false);
 });
 
@@ -114,4 +114,58 @@ test('session summary reports completion, per-session counts and low_fps', () =>
   assert.deepEqual(s.missing, ['NONE (1 more)']);
   assert.equal(s.lowFps, 1);
   assert.equal(sessionSummary([...takes, t('NONE', 's2')], 'p1', 's2', ['A', 'NONE'], { per_sign: 2, none: 2 }, 'NONE').complete, true);
+});
+
+import { inferenceSize, TrackerWorker } from '../src/lib/tracking.js';
+test('inference resolution is bounded and preserves source aspect ratio', () => {
+  assert.deepEqual(inferenceSize(1280, 960, 640), { width: 640, height: 480 });
+  assert.deepEqual(inferenceSize(1280, 720, 640), { width: 640, height: 360 });
+  assert.deepEqual(inferenceSize(320, 240, 640), { width: 320, height: 240 });
+});
+test('timing rejects sparse, duplicate, out of order and stalled samples without inventing frames', () => {
+  for (const fps of [3, 8, 10, 20, 30]) assert.equal(takeVerdict(framesAt(fps, 26)).valid, false);
+  assert.equal(takeVerdict(framesAt(15, 24)).valid, true);
+  const duplicate = framesAt(15, 26); duplicate[5].t_ms = duplicate[4].t_ms;
+  assert.equal(takeVerdict(duplicate).valid, false);
+  const gap = framesAt(15, 26); gap[5].t_ms += 40;
+  assert.equal(takeVerdict(gap).valid, false);
+  const invalid = framesAt(15, 26); invalid[5].t_ms = NaN;
+  assert.equal(takeVerdict(invalid).valid, false);
+});
+test('worker correlates replies and rejects pending work on stop', async () => {
+  class FakeWorker {
+    static instance;
+    constructor() { FakeWorker.instance = this; this.messages = []; }
+    postMessage(msg) { this.messages.push(msg); }
+    terminate() { this.terminated = true; }
+  }
+  const tracker = new TrackerWorker('hand', 'CPU', FakeWorker);
+  const worker = FakeWorker.instance;
+  assert.equal(worker.messages[0].delegate, 'CPU');
+  worker.onmessage({ data: { id: 1, ready: true } });
+  await tracker.ready;
+  const p = tracker.request({ type: 'frame', timestamp: 123 });
+  const rejected = assert.rejects(p, /stopped/);
+  tracker.close();
+  await rejected;
+  assert.equal(worker.terminated, true);
+  assert.equal(tracker.pending.size, 0);
+});
+
+import { TimingWindow } from '../src/lib/tracking.js';
+test('timing window reports bounded means and p95', () => {
+  const window = new TimingWindow(3);
+  assert.deepEqual(window.summary(), { samples: 0 });
+  for (const ms of [1000, 10, 20, 30]) window.add({ handMs: ms });
+  assert.deepEqual(window.summary(), { samples: 3, handMs: 20, handMsP95: 30 });
+});
+
+import { FrameClock } from '../src/lib/tracking.js';
+test('frame timestamps preserve actual camera intervals and never fabricate progress', () => {
+  const clock = new FrameClock();
+  assert.equal(clock.timestamp(10, 5000), 5000);
+  assert.equal(clock.timestamp(10, 5100), null);
+  assert.equal(clock.timestamp(9, 5200), null);
+  assert.equal(clock.timestamp(10.3, 5600), 5300); // completion delay is not capture time
+  assert.equal(clock.timestamp(NaN, 5700), null);
 });

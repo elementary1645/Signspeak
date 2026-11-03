@@ -43,6 +43,7 @@ class TakeMeta(BaseModel):
     consent: Literal[True]
     preview_mirrored: bool
     # Optional, added after collection started: older takes without them stay valid.
+    capture_protocol: Optional[Literal["hp-v1-timed-1"]] = None
     low_fps: Optional[bool] = None
     measured_fps: Optional[float] = Field(default=None, ge=0, le=240)
 
@@ -72,6 +73,12 @@ def validate_take(raw):
     frames = validate_frames(frames_raw)
     if frames[-1]['t_ms'] - frames[0]['t_ms'] < MIN_SPAN_MS:
         raise ValueError('Take is too short to cover one recognition window')
+    if meta.capture_protocol == 'hp-v1-timed-1':
+        span = frames[-1]['t_ms'] - frames[0]['t_ms']
+        fps = (len(frames) - 1) * 1000 / span
+        gaps = [b['t_ms'] - a['t_ms'] for a, b in zip(frames, frames[1:])]
+        if len(frames) < 24 or not MIN_SPAN_MS <= span <= 1850 or not 14 <= fps <= 17 or max(gaps) > 100:
+            raise ValueError('Take violates hp-v1-timed-1 capture timing contract')
     return meta.model_dump(by_alias=True), frames
 
 

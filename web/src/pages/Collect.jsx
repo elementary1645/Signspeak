@@ -87,6 +87,7 @@ export default function Collect() {
   }
 
   async function keep() {
+    if (!pending?.verdict.valid) return;
     const take = {
       schema: TAKE_SCHEMA, frame_schema: FRAME_SCHEMA, take_id: crypto.randomUUID(),
       label: pending.label, signer_id: signer, session_id: session,
@@ -94,7 +95,7 @@ export default function Collect() {
       none_prompt: pending.label === noneLabel ? pending.prompt?.id ?? null : null,
       app_version: APP_VERSION, recorded_at: new Date().toISOString(),
       capture_ms: Math.max(500, pending.durationMs),
-      consent: true, preview_mirrored: true,
+      consent: true, preview_mirrored: true, capture_protocol: 'hp-v1-timed-1',
       low_fps: pending.verdict.lowFps, measured_fps: Math.round(pending.verdict.fps * 10) / 10,
       frames: pending.frames,
     };
@@ -174,7 +175,7 @@ export default function Collect() {
           </div>
         )}
         {isNone && nonePrompt && <p><strong>NONE prompt:</strong> {nonePrompt.text}</p>}
-        {cam.stats.fps != null && cam.stats.fps < LOW_FPS && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {LOW_FPS}. Close other apps or tabs and improve the lighting. Takes will be marked low_fps.</p>}
+        {cam.stats.fps != null && cam.stats.fps < LOW_FPS && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {LOW_FPS}. Close other apps or tabs and improve the lighting. Takes outside the hp-v1 timing contract cannot be kept.</p>}
 
         {phase === 'idle' && <button className="btn primary" onClick={record} disabled={!ready}>Record take</button>}
         {!ready && phase === 'idle' && <p className="muted">Start the camera, enter a pseudonym and session, and tick consent.</p>}
@@ -185,7 +186,7 @@ export default function Collect() {
             <p>{pending.label}: {pending.quality.frames} frames over {(pending.quality.durationMs / 1000).toFixed(2)} s
               ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
               upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
-            {!verdict.valid && <p className="notice error">Too few frames to use. Discard and try again (close other apps, improve light).</p>}
+            {!verdict.valid && <p className="notice error">Timing contract failed: need at least 24 distinct frames, 14–17 effective FPS, no gap over 100 ms, and a span of 1.38–1.85 s. Discard and retry with another delegate or lower resolution.</p>}
             {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
             {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
             {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}
