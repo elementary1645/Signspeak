@@ -65,6 +65,12 @@ available; no diagnostics are sent to the server or training dataset.
 until the [actual-device acceptance steps](PHASE3_HAND_REGRESSION.md) pass. No headless
 or synthetic test substitutes for accepting genuine hands on that laptop.
 
+## Framing and start position (required)
+
+- Use good framing: no framing warning on `/collect` (face in the upper half, shoulders
+  in view).
+- Start each take with the signing hand raised and visible, away from the face.
+
 ## Signs (about 15 min)
 
 For each sign in the list:

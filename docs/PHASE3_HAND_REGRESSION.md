@@ -5,6 +5,18 @@ headless tests cannot establish that the actual laptop accepts genuine hands and
 face hallucinations. Do not resume sign collection until the acceptance steps at the end
 of this document pass on the laptop.
 
+## Laptop acceptance results
+
+Date: 3 November 2026. Build: `cbeadee`. Policy: hand-evidence-v3. Tested by the signer on
+the real Windows laptop. Results as reported:
+
+- A1–A9 all pass with good framing (face in the upper half, shoulders visible). Face
+  hallucinations stay dashed yellow and are never accepted; real hands stay solid,
+  including a slow move from the side to the chin.
+- B1, B2 pass with bad framing (face low, shoulders cut off).
+- A8b (hand raised beside shoulder → Record → move to chin): Keep enabled every time.
+  A8c (hand still): Keep enabled every time. A lap → chin take also kept.
+
 ## Real laptop evidence (3 November 2026)
 
 Three diagnostics were captured on the Windows laptop with **Capture Failure B** on
