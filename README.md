@@ -7,15 +7,20 @@ their meaning in English, Kannada, Hindi or Tamil. The browser extracts hand and
 upper-body landmarks with MediaPipe; only landmarks (never images) go to a Python server,
 which computes features, trains CPU scikit-learn models and runs live recognition.
 
-**Status (Phase 3).** Collection, training and live recognition are built and tested,
-and the browser pipeline has been checked in headless Chrome with a fake camera.
-**No sign is verified yet, no real data has been collected and no model is trained.**
-Until then `/translate` says "Model not trained yet" and never guesses.
-See [the human steps](#what-needs-a-human).
+**Live demo:** not deployed yet. Deploying needs a Hugging Face token; see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). After the first deploy the app runs at
+`https://<user>-signspeak.hf.space`. Free Spaces sleep when idle: open the URL about
+10 minutes before judging.
+
+**Status.** Product UI (Home, Translate, Learn ISL, How It Works, About & Model), speech,
+collection, training and live recognition are built and tested. The browser pipeline has
+been checked in headless Chrome with a fake camera. **No sign is verified yet and no
+model is trained.** Until then `/translate` says "Model not trained yet" and never
+guesses. See [the human steps](#what-needs-a-human).
 
 ```
 browser: camera → MediaPipe Hand (2) + Pose lite, ~15 fps → lm-v1 landmarks
-  /collect  → 2 s takes → "Download my data" (.jsonl) → scripts/merge_takes.py
+  /collect  → takes of 26 frames or 3 s (autosaved in IndexedDB) → "Download my data" (.jsonl) → scripts/merge_takes.py
   /translate → WebSocket /ws/recognize (or POST /api/predict)
 server (Python): hp-v1 features → sklearn model → NONE/threshold rejection → smoothing → state
 ```
@@ -46,7 +51,9 @@ python scripts/download_model.py
 python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Open http://127.0.0.1:8000/collect or `/translate`. The camera needs `localhost` or HTTPS.
+Open http://127.0.0.1:8000. Pages: `/` Home, `/translate`, `/learn`, `/how-it-works`,
+`/about`, and `/collect` for volunteer signers (linked in the footer). The camera needs
+`localhost` or HTTPS.
 FastAPI serves the built app, API, WebSocket and models from one origin, with no
 localhost assumptions (ready for one Docker image on Hugging Face Spaces, port 7860).
 
@@ -71,8 +78,20 @@ starting uvicorn. Takes go to `data/raw/takes/` (git-ignored).
    signers), tunes rejection thresholds on validation folds, and writes
    `backend/models/live/{model.joblib,metrics.json}` and the [model card](docs/MODEL_CARD.md).
    Options: `--drop-unverified`, `--mirror-augment`, `--models svm_rbf,random_forest`.
-5. **Restart the server.** `/ready` returns 200 only when a compatible model is loaded;
-   `/translate` shows live states.
+5. **Voice:** `python -m scripts.generate_audio` makes mp3s for every verified sign in all
+   four languages (edge-tts Indian voices, gTTS fallback; needs `pip install -r requirements-tools.txt`).
+6. **Restart the server** (or redeploy). `/ready` returns 200 only when a compatible model
+   is loaded; `/translate` shows live states and speaks recognised meanings.
+
+### The evening loop (after each collection session)
+
+```powershell
+python -m scripts.merge_takes <downloaded .jsonl files or folders>
+python -m backend.live.train
+python -m scripts.generate_audio
+cd web; npm run build; cd ..                    # local use; the Space builds its own
+$env:HF_TOKEN = "<write token>"; python -m scripts.deploy_space --space <user>/signspeak
+```
 
 Live states: `INITIALIZING`, `READY`, `DETECTING`, `RECOGNIZING`, `RECOGNIZED`, `UNKNOWN`,
 `NO_HAND`, `ERROR`. The reserved `NONE` class is trained but never displayed: if NONE
@@ -83,7 +102,7 @@ Schemas and features: [docs/data_schema.md](docs/data_schema.md).
 
 ```bash
 python -m pytest backend/tests -q        # Phase 1-3 Python tests
-cd web && npm test                       # browser logic (frames, sides, reconnect/fallback)
+cd web && npm test                       # browser logic: frames, capture, reconnect, speech, UI state
 node frontend/tests/collector.test.cjs   # legacy lab
 python -m scripts.smoke_test             # real MediaPipe CPU model + legacy routes
 ```
@@ -131,7 +150,11 @@ downloaded separately, git-ignored and self-hosted at runtime. FastAPI, scikit-l
 React, Vite and other dependencies keep their own licenses.
 
 **AI assistance disclosure.** OpenAI **ChatGPT/Codex** assisted with Phases 1–2.
-**Claude Code (Anthropic)** assisted with Phase 3: the web app, hp-v1 pipeline, training,
-live service, tests and documentation. The kn/hi/ta translation drafts are AI-generated
+**Claude Code (Anthropic)** assisted with Phase 3 onwards: the web app and product UI,
+hp-v1 pipeline, training, live service, speech generation and player, deployment
+tooling, tests and documentation. The kn/hi/ta translation drafts are AI-generated
 and flagged for native-speaker review. No complete existing sign-language project was
 copied. Sign verification, real data and real evaluation cannot come from an AI assistant.
+
+Privacy details: [docs/PRIVACY.md](docs/PRIVACY.md). Speech is generated with Microsoft
+Edge TTS voices (`edge-tts`) or Google Text-to-Speech (`gTTS`) from the dictionary meanings only.

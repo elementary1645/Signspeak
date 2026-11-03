@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "node scripts/copy-wasm.mjs && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/web.test.mjs"
+    "test": "node --test tests/web.test.mjs tests/product.test.mjs"
   },
   "dependencies": {
     "@fontsource/atkinson-hyperlegible": "5.3.0",

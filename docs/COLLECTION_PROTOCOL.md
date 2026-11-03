@@ -7,8 +7,10 @@ For each person recording takes on `/collect`, and for the teammate running the 
 - **Consent.** Explain: we record hand and upper-body *landmark points* (about 75 points
   per frame), not video or photos. The data trains a hackathon prototype. Takes are kept
   in a git-ignored folder and deleted after the hackathon unless the signer agrees
-  otherwise. The signer can stop at any time and delete their local data on the page.
-  They tick the consent box themselves.
+  otherwise. The trained model (built from everyone's takes) is published on the public
+  demo, and some model types contain numeric summaries of training movements; see
+  `docs/PRIVACY.md`. The signer can stop at any time and clear their saved takes on the
+  page. They tick the consent box themselves.
 - **Pseudonym.** Pick one ID such as `signer07` and use it in **every** session. Never a
   real name, phone or email. The same person under two IDs would leak between training
   and testing.
@@ -24,8 +26,10 @@ For each person recording takes on `/collect`, and for the teammate running the 
 For each sign in the list:
 
 1. Open the official link shown on the page and watch it. Read the notes.
-2. Press **Record take**. After the 3-2-1 countdown, perform the sign once within the
-   2 seconds. Start from rest, sign, and return to rest.
+2. Press **Record take**. After the 3-2-1 countdown, perform the sign once. Recording
+   stops by itself after about 1.7 s at a normal frame rate (26 frames), or 3 s at most.
+   Start from rest, sign, and return to rest. Watch the fps line under the camera: below
+   12 fps, takes are marked `low_fps`. Close other apps and improve the light.
 3. Press **Keep** if the sign was correct and the hands were visible. Otherwise press
    **Discard** and try again.
 4. Do 8 takes per sign. Vary them a little: slight changes in position, speed and
@@ -38,14 +42,17 @@ can add mirrored copies with `--mirror-augment`).
 
 Choose **NONE: not a sign**. The page shows a prompt (rest, scratching your head, adjusting
 glasses, random movement, half a sign, raising hands into position, casual chatting,
-checking a phone). Follow it naturally for the 2 seconds. NONE teaches the model when
+checking a phone). Follow it naturally until recording stops. NONE teaches the model when
 **not** to output anything, so these takes matter as much as the signs.
 
 ## Finish (2 min)
 
+- Check the **Summary** panel. It must say "Complete" (every sign and NONE at target),
+  and it lists any `low_fps` takes. Kept takes are autosaved in the browser, so a
+  reload does not lose them.
 - Press **Download my data** and send the `.jsonl` file to the team lead (shared drive,
   USB). It contains only landmarks and the metadata listed in `docs/data_schema.md`.
-- On a shared computer, press **Delete my local data** after downloading.
+- On a shared computer, press **Clear saved takes** after downloading.
 
 ## Team lead: merge and train
 
