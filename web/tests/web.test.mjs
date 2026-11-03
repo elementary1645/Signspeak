@@ -348,3 +348,62 @@ test('mixed browser/server observation policies fail closed without changing cap
   assert.equal(PROTOCOLS[DEFAULT_PROTOCOL].fps, 8);
   assert.equal(PROTOCOLS[DEFAULT_PROTOCOL].window, 16);
 });
+
+import { DiagnosticBuffer } from '../src/lib/diagnosticBuffer.js';
+test('diagnostic ring retains exactly the latest 100 complete observations', () => {
+  const buffer = new DiagnosticBuffer();
+  assert.equal(buffer.latest(), null);
+  assert.equal(buffer.latestFailureB(), null);
+  buffer.append({ t_ms: 0, rawCount: 1, acceptedCount: 0 });
+  for (let i = 1; i <= 100; i++) buffer.append({ t_ms: i, rawCount: 0, acceptedCount: 0 });
+  assert.equal(buffer.size, 100);
+  assert.equal(buffer.getVersion(), 101);
+  assert.equal(buffer.latest().t_ms, 100);
+  assert.equal(buffer.latestFailureB(), null, 'old event is evicted rather than misreported as recent');
+});
+test('Failure B capture finds the newest raw-candidate/no-accepted event after the live state changes', () => {
+  const buffer = new DiagnosticBuffer();
+  buffer.append({ t_ms: 1, rawCount: 1, acceptedCount: 0, reason: 'old event' });
+  buffer.append({ t_ms: 2, rawCount: 1, acceptedCount: 0, reason: 'latest event' });
+  buffer.append({ t_ms: 3, rawCount: 1, acceptedCount: 1 });
+  buffer.append({ t_ms: 4, rawCount: 0, acceptedCount: 0 });
+  assert.equal(buffer.latest().t_ms, 4);
+  assert.equal(buffer.latestFailureB().t_ms, 2);
+});
+test('frozen diagnostic copies preserve full evidence independently of source mutations and ring overwrite', () => {
+  const buffer = new DiagnosticBuffer(2);
+  const input = {
+    policy: 'hand-evidence-v2', rawCount: 1, acceptedCount: 0, t_ms: 192676,
+    sourceTimestamp: 192676.071, workerTimestamps: { hand: 192676.071, pose: 192676.071 },
+    poseShoulders: [[.72, 1.03, -.33, .98], [.34, 1.004, -.33, .99]],
+    presenceConfidence: null,
+    raw: [{ handedness: 'Right', handednessScore: .9802, landmarks: structuredClone(handCases[0].frame.hands[0].landmarks),
+      poseWrists: [{ coordinates: [.604, 1.01, -.88, .68], distancePixels: 297.8 },
+        { coordinates: [.248, .641, -1.66, .8177], distancePixels: 10.77 }],
+      status: 'uncertain', reason: 'face-reference-unavailable', side: '?', sideSource: null }],
+    additionalEvidence: { nested: ['must be preserved verbatim'] },
+  };
+  const expected = structuredClone(input);
+  buffer.append(input);
+  input.raw[0].landmarks[0][0] = 999;
+  const frozen = buffer.latestFailureB();
+  assert.deepEqual(frozen, expected);
+  frozen.raw[0].handednessScore = 0;
+  assert.deepEqual(buffer.latestFailureB(), expected, 'returned copies cannot mutate the ring');
+  const pinned = buffer.latestFailureB();
+  buffer.append({ rawCount: 0, acceptedCount: 0, t_ms: 2 });
+  buffer.append({ rawCount: 0, acceptedCount: 0, t_ms: 3 });
+  assert.equal(buffer.latestFailureB(), null);
+  assert.deepEqual(pinned, expected, 'freeze survives eviction and continuing camera observations');
+});
+test('diagnostic subscriptions can detach or fail without interrupting observation storage', () => {
+  const buffer = new DiagnosticBuffer(); let notified = 0;
+  const detach = buffer.subscribe(() => notified++);
+  buffer.subscribe(() => { throw new Error('viewer failure'); });
+  buffer.append({ t_ms: 1 });
+  detach();
+  buffer.append({ t_ms: 2 });
+  assert.equal(notified, 1);
+  assert.equal(buffer.size, 2);
+  assert.equal(buffer.latest().t_ms, 2);
+});

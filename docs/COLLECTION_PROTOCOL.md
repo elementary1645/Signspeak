@@ -40,6 +40,14 @@ window; collector stops at 26). Do not mix its recordings with 8 FPS training da
 The summary counts only the selected protocol. Downloads retain all takes with their
 original protocol tags; old takes are never automatically upgraded.
 
+## Capture a transient validation failure first
+
+On `/collect`, **Capture hand diagnostics** retains the latest 100 diagnostic observations
+in browser memory. With both hands outside view, press **Capture Failure B** after the
+facial candidate appears, then **Copy JSON**. **Freeze Diagnostics** pauses only the JSON
+view; the camera and buffer keep running. See [exact capture instructions](CAPTURE_HAND_DIAGNOSTICS.md).
+This diagnostic tool does not fix or change detection. Copy the evidence before refreshing.
+
 ## Verify accepted hand tracking before each session
 
 The current policy is **hand-evidence-v2**. Confirm genuine left/right hands are accepted

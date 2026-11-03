@@ -5,7 +5,7 @@ const SIDE = { L: 'your left', R: 'your right', '?': 'side unknown' };
 
 // Video + overlay share one CSS mirror so the preview reads like a mirror while the
 // detector keeps receiving unmirrored pixels.
-export default function CameraView({ cam, label = 'Camera preview with hand tracking overlay' }) {
+export default function CameraView({ cam, label = 'Camera preview with hand tracking overlay', showDiagnostics = true }) {
   // Draw in the same React commit as the label: neither can describe a different frame.
   useLayoutEffect(() => {
     const canvas = cam.canvasRef.current;
@@ -60,7 +60,7 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
         )}
       </div>
       {cam.status === 'running' && cam.diagnostics?.rawCount > cam.diagnostics?.acceptedCount && <p className="notice warn">Hand evidence is uncertain or invalid. Dashed yellow landmarks are preview only and cannot be recorded. Missing body landmarks do not mean no hands; inspect the reason below.</p>}
-      {cam.status === 'running' && cam.diagnostics && <details>
+      {showDiagnostics && cam.status === 'running' && cam.diagnostics && <details>
         <summary>Local hand validation diagnostics</summary>
         <p>Raw handedness score is not a hand-presence confidence. Yellow uncertain previews and invalid observations are never recorded.</p>
         <label><input type="checkbox" checked={cam.logCandidates || false} onChange={e => cam.setLogCandidates?.(e.target.checked)} /> Log candidate summaries in this browser console (local only)</label>

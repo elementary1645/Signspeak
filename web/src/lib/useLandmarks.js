@@ -4,7 +4,7 @@ import { POLICY, validateHands } from './handValidation.js';
 import { FpsMeter } from './capture.js';
 import { FrameClock, FreshFrame, validResultPair, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
-export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY, onUncertain }) {
+export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY, onUncertain, diagnosticBuffer = null }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const session = useRef(null);
@@ -135,6 +135,8 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
               else onUncertainRef.current?.({ ...details, t_ms: rawFrame.t_ms });
               meter.add(accepted.frame.t_ms);
             }
+            // Copy evidence after the unchanged live consumers. Freezing never gates this loop.
+            try { diagnosticBuffer?.append(details); } catch { /* diagnostics must not stop inference */ }
             processMs = performance.now() - processingStart;
           } else {
             staleResults++;
@@ -156,7 +158,7 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
       setStatus('running');
       schedule();
     } catch (err) { fail(err); }
-  }, [settings, requiredFps, maxSourceFps, handValidation, stop]);
+  }, [settings, requiredFps, maxSourceFps, handValidation, diagnosticBuffer, stop]);
 
   useEffect(() => stop, [stop]);
   useEffect(() => {

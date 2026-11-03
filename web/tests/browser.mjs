@@ -42,7 +42,7 @@ try {
     assert.equal(await page.getByLabel('Inference FPS', { exact: true }).inputValue(), '8');
     if (delegate === 'CPU') {
       await page.getByPlaceholder('e.g. signer07').fill('synthetic_test');
-      await page.getByRole('checkbox').check();
+      await page.getByRole('checkbox', { name: /I agree to record hand/ }).check();
       await page.getByRole('button', { name: 'Record take', exact: true }).click();
       const keep = page.getByRole('button', { name: 'Keep', exact: true });
       await keep.waitFor({ timeout: 15000 });
@@ -65,7 +65,7 @@ try {
   await page.getByRole('button', { name: 'Start camera', exact: true }).click();
   await page.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
   await page.getByPlaceholder('e.g. signer07').fill('synthetic_test');
-  await page.getByRole('checkbox').check();
+  await page.getByRole('checkbox', { name: /I agree to record hand/ }).check();
   await page.getByRole('button', { name: 'Record take', exact: true }).click();
   const keep = page.getByRole('button', { name: 'Keep', exact: true });
   await keep.waitFor({ timeout: 15000 });
@@ -94,7 +94,11 @@ try {
   // Camera frames/timestamps remain real synthetic-camera samples; only one isolated synthetic take is kept to verify rejected landmarks are absent.
   const controlled = await browser.newPage();
   const savedRequests = [];
-  controlled.on('request', r => { if (r.method() === 'POST' && r.url().includes('/api/takes')) savedRequests.push(r.url()); });
+  const diagnosticWrites = [];
+  controlled.on('request', r => {
+    if (r.method() === 'POST' && r.url().includes('/api/takes')) savedRequests.push(r.url());
+    if (['POST', 'PUT', 'PATCH'].includes(r.method())) diagnosticWrites.push(r.url());
+  });
   await controlled.addInitScript(cases => {
     window.validationScene = 'no visible hands';
     window.Worker = class {
@@ -125,7 +129,7 @@ try {
   });
   await controlled.goto(`${process.env.BROWSER_BASE_URL || 'http://127.0.0.1:8000'}/collect`);
   await controlled.getByPlaceholder('e.g. signer07').fill('controlled_ui_fixture');
-  await controlled.getByRole('checkbox').check();
+  await controlled.getByRole('checkbox', { name: /I agree to record hand/ }).check();
   await controlled.getByRole('button', { name: 'Start camera', exact: true }).click();
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
   const handPixels = () => {
@@ -145,14 +149,14 @@ try {
     const example = handCases.find(c => c.name === scene);
     const expected = example.sides;
     await controlled.waitForFunction(({ count, rawCount, wrist }) => {
-      const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+      const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
       if (!raw) return false;
       const d = JSON.parse(raw);
       return d.acceptedCount === count && d.rawCount === rawCount
         && (!wrist || JSON.stringify(d.raw?.[0]?.landmarks[0]) === JSON.stringify(wrist));
     }, { count: expected.length, rawCount: example.frame.hands.length, wrist: example.frame.hands[0]?.landmarks[0].map(v => Math.round(v * 1e5) / 1e5) });
     const text = await controlled.getByLabel('Accepted hand status', { exact: true }).textContent();
-    const diagnostic = JSON.parse(await controlled.getByLabel('Hand validation diagnostics', { exact: true }).textContent());
+    const diagnostic = JSON.parse(await controlled.getByLabel('Diagnostic observation JSON', { exact: true }).inputValue());
     if (diagnostic.uncertainCount) assert.match(text, /uncertain/);
     else if (!expected.length) assert.match(text, /Hands: none/);
     if (expected.length) for (const side of expected) assert.ok(text.includes(side === 'L' ? 'your left' : 'your right'));
@@ -167,7 +171,7 @@ try {
   }
   await controlled.evaluate(() => { window.validationScene = 'face false positive despite high handedness score'; });
   await controlled.waitForFunction(() => {
-    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).rawCount === 1 && JSON.parse(raw).acceptedCount === 0;
   });
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
@@ -179,7 +183,7 @@ try {
   await controlled.getByRole('button', { name: 'Discard', exact: true }).click();
   await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
   await controlled.waitForFunction(() => {
-    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).state === 'none';
   });
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
@@ -191,18 +195,18 @@ try {
   // Realistic independent-hand fixtures must also survive collection, not merely preview.
   await controlled.evaluate(() => { window.validationScene = 'both hands raised'; });
   await controlled.waitForFunction(() => {
-    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).acceptedCount === 2;
   });
   await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
   await controlled.waitForFunction(() => {
-    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).state === 'none';
   });
   assert.equal(await controlled.evaluate(handPixels), 0);
   await controlled.evaluate(() => { window.validationScene = 'both hands raised'; });
   await controlled.waitForFunction(() => {
-    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    const raw = document.querySelector('[aria-label="Diagnostic observation JSON"]')?.value;
     return raw && JSON.parse(raw).acceptedCount === 2;
   });
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
@@ -224,7 +228,75 @@ try {
   assert.ok(saved.some(t => t.frames.length === 16 && t.frames.every(f => f.hands.length === 2)));
   assert.ok(saved.every(t => t.hand_validation === 'hand-evidence-v2'));
   console.log('Uncertain face take was not saved; only the distinct no-candidate and accepted-raised-hand takes exist in the isolated browser dataset.');
+  // Capture/freeze is independent of live tracking and of take storage.
+  const diagnosticJson = controlled.getByLabel('Diagnostic observation JSON', { exact: true });
+  const received = async () => Number((await controlled.getByLabel('Diagnostic buffer status', { exact: true }).textContent()).match(/Received: (\d+)/)[1]);
+  await controlled.getByRole('button', { name: 'Capture Diagnostics', exact: true }).click();
+  const firstFrozen = await diagnosticJson.inputValue();
+  assert.equal(JSON.parse(firstFrozen).acceptedCount, 2);
+  const firstVersion = await received();
+  await controlled.waitForFunction(v => Number(document.querySelector('[aria-label="Diagnostic buffer status"]').textContent.match(/Received: (\d+)/)[1]) > v + 2, firstVersion);
+  assert.equal(await diagnosticJson.inputValue(), firstFrozen);
+  assert.ok(await controlled.getByRole('button', { name: 'Stop camera', exact: true }).count());
+  await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
+  await controlled.getByLabel('Accepted hand status', { exact: true }).filter({ hasText: 'Hands: none' }).waitFor();
+  assert.equal(await controlled.evaluate(handPixels), 0, 'overlay remains live while JSON is frozen');
+  assert.equal(await diagnosticJson.inputValue(), firstFrozen);
+  await controlled.getByRole('button', { name: 'Resume Diagnostics', exact: true }).click();
+  await controlled.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Diagnostic observation JSON"]').value).rawCount === 0);
+  assert.equal(await controlled.getByRole('button', { name: 'Copy JSON', exact: true }).isDisabled(), true);
+  await controlled.getByRole('button', { name: 'Freeze Diagnostics', exact: true }).click();
+  const emptyFrozen = await diagnosticJson.inputValue();
+  const beforeFailure = await received();
+  await controlled.evaluate(() => { window.validationScene = 'face false positive despite high handedness score'; });
+  await controlled.getByLabel('Accepted hand status', { exact: true }).filter({ hasText: 'uncertain' }).waitFor();
+  await controlled.waitForFunction(v => Number(document.querySelector('[aria-label="Diagnostic buffer status"]').textContent.match(/Received: (\d+)/)[1]) > v + 2, beforeFailure);
+  await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
+  await controlled.getByLabel('Accepted hand status', { exact: true }).filter({ hasText: 'Hands: none' }).waitFor();
+  assert.equal(await diagnosticJson.inputValue(), emptyFrozen);
+  await controlled.getByRole('button', { name: 'Capture Failure B', exact: true }).click();
+  const failureJson = await diagnosticJson.inputValue();
+  const failure = JSON.parse(failureJson);
+  assert.equal(failure.rawCount, 1); assert.equal(failure.acceptedCount, 0);
+  assert.equal(failure.raw[0].landmarks.length, 21);
+  assert.equal(failure.raw[0].poseWrists.length, 2);
+  assert.equal(failure.raw[0].handednessScore, .99);
+  assert.ok(failure.raw[0].reason && failure.workerTimestamps && failure.t_ms);
+  assert.equal(failure.sourceTimestamp, failure.workerTimestamps.hand);
+  assert.equal(failure.sourceTimestamp, failure.workerTimestamps.pose);
+  const capturedVersion = await received();
+  await controlled.waitForFunction(v => Number(document.querySelector('[aria-label="Diagnostic buffer status"]').textContent.match(/Received: (\d+)/)[1]) > v + 2, capturedVersion);
+  assert.equal(await diagnosticJson.inputValue(), failureJson);
+  await controlled.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true,
+      value: { writeText: async value => { window.copiedDiagnostic = value; } } });
+  });
+  await controlled.getByRole('button', { name: 'Copy JSON', exact: true }).click();
+  assert.equal(await controlled.evaluate(() => window.copiedDiagnostic), failureJson);
+  await controlled.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true,
+      value: { writeText: async () => { throw new Error('Clipboard denied in test'); } } });
+  });
+  await controlled.getByRole('button', { name: 'Copy JSON', exact: true }).click();
+  await controlled.getByText('Automatic clipboard access is unavailable.', { exact: false }).waitFor();
+  assert.equal(await diagnosticJson.inputValue(), failureJson);
+  assert.match(await controlled.getByLabel('Diagnostic buffer status', { exact: true }).textContent(), /100\/100 observations/);
+  assert.deepEqual(savedRequests, []);
+  assert.deepEqual(diagnosticWrites, []);
+  const remainingTakes = await controlled.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('signspeak', 1);
+    open.onsuccess = () => {
+      const count = open.result.transaction('takes').objectStore('takes').count();
+      count.onsuccess = () => { resolve(count.result); open.result.close(); };
+      count.onerror = () => reject(count.error);
+    };
+    open.onerror = () => reject(open.error);
+  }));
+  assert.equal(remainingTakes, 2, 'diagnostic controls must not create training takes');
+  console.log('Diagnostic ring capture/freeze/Failure B/copy passed; camera kept running and no diagnostic upload occurred.');
+
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).click();
+  assert.equal(await diagnosticJson.inputValue(), failureJson, 'stopping the camera does not discard frozen evidence');
   assert.deepEqual(savedRequests, []);
   // Mixed deployments must not save new-policy observations to an old-policy server.
   await controlled.route('**/api/config', async route => {
@@ -234,8 +306,12 @@ try {
       hand_validation: { ...config.hand_validation, policy: 'pose-wrist-v1' } } });
   });
   await controlled.reload();
+  assert.equal(await controlled.getByRole('button', { name: 'Copy JSON', exact: true }).isDisabled(), true);
+  await controlled.getByRole('button', { name: 'Capture Failure B', exact: true }).click();
+  await controlled.getByText('No raw-candidate / zero-accepted-hand event remains', { exact: false }).waitFor();
+
   await controlled.getByPlaceholder('e.g. signer07').fill('mixed_policy_fixture');
-  await controlled.getByRole('checkbox').check();
+  await controlled.getByRole('checkbox', { name: /I agree to record hand/ }).check();
   await controlled.getByRole('button', { name: 'Start camera', exact: true }).click();
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
   assert.equal(await controlled.getByRole('button', { name: 'Record take', exact: true }).isDisabled(), true);

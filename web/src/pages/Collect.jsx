@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { POLICY, policyMatches } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
+import DiagnosticCapture from '../lib/DiagnosticCapture.jsx';
+import { DiagnosticBuffer } from '../lib/diagnosticBuffer.js';
 import { APP_VERSION, FRAME_SCHEMA, TAKE_SCHEMA, frameQuality } from '../lib/lm.js';
 import { CAPTURE_MAX_MS, DEFAULT_PROTOCOL, PROTOCOLS, captureDone, sessionSummary, takeVerdict, timingInstructions } from '../lib/capture.js';
 import { deleteTakes, loadTakes, saveTake, takesToJsonl } from '../lib/takeStore.js';
@@ -26,6 +28,8 @@ export default function Collect() {
   const [storage, setStorage] = useState({ loaded: false, persistent: false, migrated: 0 });
   const [notice, setNotice] = useState(null);
   const capture = useRef(null);
+  const diagnosticBuffer = useRef(null);
+  if (!diagnosticBuffer.current) diagnosticBuffer.current = new DiagnosticBuffer(100);
   const timers = useRef([]);
 
   const finish = useCallback(() => {
@@ -51,7 +55,7 @@ export default function Collect() {
     const c = capture.current;
     if (c && details.t_ms >= c.start) c.uncertainFrames++;
   }, []);
-  const cam = useLandmarks({ onFrame, onUncertain, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
+  const cam = useLandmarks({ onFrame, onUncertain, diagnosticBuffer: diagnosticBuffer.current, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
 
   useEffect(() => {
     Promise.all([fetch('/api/config').then(r => r.json()), fetch('/api/vocabulary').then(r => r.json())])
@@ -175,7 +179,8 @@ export default function Collect() {
         <p>{timingInstructions(protocol)} Use CPU on the tested laptop. Keep hands and shoulders visible throughout the sign.</p>
         <p className="muted">The selected protocol controls inference FPS. Stop the camera to switch. Summary targets count only this protocol; downloads include all protocols with their original tags.</p>
       </section>
-      <CameraView cam={cam} />
+      <CameraView cam={cam} showDiagnostics={false} />
+      <DiagnosticCapture buffer={diagnosticBuffer.current} logCandidates={cam.logCandidates} setLogCandidates={cam.setLogCandidates} />
 
       <section className="card">
         <label className="field">What to record
