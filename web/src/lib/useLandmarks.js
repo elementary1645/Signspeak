@@ -116,7 +116,9 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
           if (validResultPair(hand, pose, timestamp, performance.now() - now)) {
             const rawFrame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
             const accepted = validateHands(rawFrame, { ...handValidation, allowHandednessFallback: effectiveFps !== 15 });
-            const details = { ...accepted.diagnostics, t_ms: rawFrame.t_ms, sourceTimestamp: timestamp,
+            // Diagnostics only: pose elbows 13/14 as [x, y, z, visibility]; never read by admission.
+            const details = { ...accepted.diagnostics, poseElbows: rawFrame.pose ? [rawFrame.pose[13], rawFrame.pose[14]] : null,
+              t_ms: rawFrame.t_ms, sourceTimestamp: timestamp,
               workerTimestamps: { hand: hand.timestamp, pose: pose.timestamp },
               resultAgeMs: performance.now() - now, input: { width: input.width, height: input.height },
               detectorThresholds: { detection: POLICY.minHandDetectionConfidence, presence: POLICY.minHandPresenceConfidence,
