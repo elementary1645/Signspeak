@@ -1,5 +1,6 @@
 // Real MediaPipe, synthetic browser camera: verifies plumbing, never signing accuracy.
 // Start the built app with LEGACY_DETECTOR=0 python -m uvicorn backend.app.main:app.
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import handCases from './fixtures/hand-validation.json' with { type: 'json' };
@@ -204,6 +205,15 @@ try {
   assert.equal(await controlledKeep.isDisabled(), false);
   assert.match(await controlled.getByText(/frames over/).textContent(), /16 frames/);
   console.log('CONFIRMED NO-CANDIDATE UI CAPTURE:', await controlled.getByText(/frames over/).textContent());
+  // Per-take diagnostics: a local download only, covering countdown and recording.
+  const [takeDownload] = await Promise.all([controlled.waitForEvent('download'),
+    controlled.getByRole('button', { name: 'Download take diagnostics', exact: true }).click()]);
+  const takeLog = JSON.parse(fs.readFileSync(await takeDownload.path(), 'utf8'));
+  assert.equal(takeLog.schema, 'take-diagnostics-v1');
+  assert.equal(takeLog.takeFrameTimes.length, 16);
+  assert.ok(takeLog.observations.some(o => o.phase === 'countdown'));
+  assert.equal(takeLog.observations.filter(o => o.addedToTake).length, 16);
+  console.log('Take diagnostics download:', takeLog.observations.length, 'observations, gaps', takeLog.takeFrameGapsMs.join('/'));
   await controlledKeep.click();
   // Realistic independent-hand fixtures must also survive collection, not merely preview.
   await controlled.evaluate(() => { window.validationScene = 'both hands raised'; });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { POLICY, policyMatches, validateSequence } from '../lib/handValidation.js';
 import { startBlockMessage } from '../lib/framing.js';
+import { TakeDiagnosticsLog } from '../lib/takeDiagnostics.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import DiagnosticCapture from '../lib/DiagnosticCapture.jsx';
@@ -29,6 +30,8 @@ export default function Collect() {
   const [storage, setStorage] = useState({ loaded: false, persistent: false, migrated: 0 });
   const [notice, setNotice] = useState(null);
   const [startBlock, setStartBlock] = useState(null);
+  const [takeDiagnostics, setTakeDiagnostics] = useState(null);
+  const takeLog = useRef(null); // diagnostics only; never uploaded
   const capture = useRef(null);
   const diagnosticBuffer = useRef(null);
   if (!diagnosticBuffer.current) diagnosticBuffer.current = new DiagnosticBuffer(100);
@@ -45,6 +48,14 @@ export default function Collect() {
     // The server judges a take on its own frames only (no pre-take history); check the same way.
     verdict.handEvidence = c.protocol !== 'hp-v2-8fps-timed-1' || validateSequence(frames).every(r => r.diagnostics.recordable);
     verdict.valid = verdict.valid && !c.uncertainFrames && verdict.handEvidence;
+    const log = takeLog.current;
+    if (log) {
+      log.close(performance.now());
+      setTimeout(() => {
+        if (takeLog.current === log) takeLog.current = null;
+        setTakeDiagnostics(log.finish({ label: c.label, protocol: c.protocol, verdict }));
+      }, 0);
+    }
     setPending({ frames, quality: frameQuality(frames), verdict, protocol: c.protocol, label: c.label, prompt: c.prompt, durationMs });
     setPhase('review');
   }, []);
@@ -53,13 +64,19 @@ export default function Collect() {
     const c = capture.current;
     if (!c || frame.t_ms < c.start) return;
     c.frames.push(frame);
+    takeLog.current?.addedToTake(frame.t_ms);
     if (captureDone(c.frames, c.start, frame.t_ms, c.protocol)) finish();
   }, [finish]);
   const onUncertain = useCallback(details => {
     const c = capture.current;
     if (c && details.t_ms >= c.start) c.uncertainFrames++;
+    if (details.state === 'stale') takeLog.current?.staleResult(details.t_ms);
   }, []);
   const cam = useLandmarks({ onFrame, onUncertain, diagnosticBuffer: diagnosticBuffer.current, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
+  // Every completed observation is appended to the diagnostic ring after onFrame/onUncertain.
+  useEffect(() => diagnosticBuffer.current.subscribe(() => {
+    if (takeLog.current) takeLog.current.observe(diagnosticBuffer.current.latest());
+  }), []);
   const camRef = useRef(cam);
   camRef.current = cam;
 
@@ -97,14 +114,17 @@ export default function Collect() {
     const blocked = startBlockMessage(cam.diagnostics, cam.framingWarn);
     setStartBlock(blocked);
     if (blocked) return;
+    takeLog.current = new TakeDiagnosticsLog(performance.now());
+    setTakeDiagnostics(null);
     setPhase('countdown');
     [3, 2, 1].forEach((n, i) => timers.current.push(setTimeout(() => setCount(n), i * 1000)));
     setCount(3);
     timers.current.push(setTimeout(() => {
       const late = startBlockMessage(camRef.current.diagnostics, camRef.current.framingWarn);
-      if (late) { setStartBlock(late); setPhase('idle'); return; }
+      if (late) { setStartBlock(late); setPhase('idle'); takeLog.current = null; return; }
       setPhase('recording');
       const start = performance.now();
+      if (takeLog.current) takeLog.current.recordingStart = start;
       // Keep the protocol selected at the start; never retag a pending take.
       capture.current = { start, frames: [], uncertainFrames: 0, protocol, label, prompt: isNone ? nonePrompt : null,
                           safety: setTimeout(finish, CAPTURE_MAX_MS + 150) };
@@ -141,6 +161,16 @@ export default function Collect() {
   }
 
   function discard() { setPending(null); setPhase('idle'); setNotice('Take discarded.'); }
+
+  function downloadTakeDiagnostics() {
+    if (!takeDiagnostics) return;
+    const blob = new Blob([JSON.stringify(takeDiagnostics, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `signspeak-take-diagnostics-${takeDiagnostics.label}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
 
   function download() {
     const blob = new Blob([takesToJsonl(mine)], { type: 'application/x-ndjson' });
@@ -236,6 +266,9 @@ export default function Collect() {
           </div>
         )}
         {notice && <p className="muted" role="status">{notice}</p>}
+        {takeDiagnostics && (phase === 'review' || phase === 'idle') && <p>
+          <button className="btn" onClick={downloadTakeDiagnostics}>Download take diagnostics</button>{' '}
+          <span className="muted">{takeDiagnostics.observations.length} observations from countdown to take end. Saved to this computer only; never uploaded.</span></p>}
       </section>
 
       {signer && PSEUDONYM.test(signer) && (

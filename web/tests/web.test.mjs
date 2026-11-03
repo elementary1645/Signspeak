@@ -490,3 +490,29 @@ test('collect refuses to start with any accepted or uncertain candidate in the f
   assert.equal(startBlockMessage({ raw: [{ nearFace: true, status: 'rejected' }] }), null);
   assert.equal(startBlockMessage(null), null);
 });
+import { TakeDiagnosticsLog } from '../src/lib/takeDiagnostics.js';
+test('take diagnostics log every observation from countdown start and mark take membership', () => {
+  const log = new TakeDiagnosticsLog(1000);
+  const obs = (t_ms, extra = {}) => ({ t_ms, state: 'accepted', rawCount: 1, acceptedCount: 1, uncertainCount: 0, rejectedCount: 0,
+    recordable: true, raw: [{ status: 'accepted', reason: 'pose-supported', faceEntry: 'not-required', trackContinuity: 'continued',
+      side: 'R', sideSource: 'pose', handedness: 'Left', handednessScore: 0.9, handWrist: [0.2, 0.6, 0], nearFace: false, palmPixels: 40, landmarks: [] }],
+    framing: { warn: false, badFraction: 0, samples: 4 }, ...extra });
+  log.observe(obs(900));                       // before countdown: ignored
+  log.observe(obs(1100));                      // countdown
+  log.recordingStart = 4000;
+  log.addedToTake(4100); log.observe(obs(4100));
+  log.observe(obs(4225, { state: 'rejected', recordable: false, acceptedCount: 0, rejectedCount: 1,
+    raw: [{ status: 'rejected', reason: 'hand-wrist-outside-image', handWrist: [0.3, 1.02, 0], nearFace: false, palmPixels: 30 }] }));
+  log.staleResult(4350);
+  log.addedToTake(4475); log.observe(obs(4475));
+  log.close(4500);
+  log.observe(obs(4475 + 125));                // after close time: ignored
+  const out = log.finish({ label: 'NONE', protocol: 'hp-v2-8fps-timed-1', verdict: { valid: false } });
+  log.observe(obs(4600));                      // after the take: ignored
+  assert.equal(out.observations.length, 4);
+  assert.deepEqual(out.observations.map(o => [o.phase, o.addedToTake]), [['countdown', false], ['recording', true], ['recording', false], ['recording', true]]);
+  assert.equal(out.observations[2].candidates[0].reason, 'hand-wrist-outside-image');
+  assert.equal('landmarks' in out.observations[1].candidates[0], false);
+  assert.deepEqual([out.takeFrameGapsMs, out.staleResultTimes], [[375], [4350]]);
+  assert.deepEqual(out.observations[1].framing, { warn: false, badFraction: 0, samples: 4 });
+});
