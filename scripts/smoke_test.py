@@ -2,6 +2,7 @@
 import base64
 import io
 import inspect
+import sys
 from fastapi.testclient import TestClient
 import mediapipe as mp
 from mediapipe.tasks.python import vision
@@ -10,6 +11,8 @@ from backend.app.main import app
 
 
 def main():
+    # Windows consoles default to cp1252; never crash on a stray non-ASCII character.
+    sys.stdout.reconfigure(errors='replace')
     print('MediaPipe:', mp.__version__)
     print('HandLandmarkerOptions:', inspect.signature(vision.HandLandmarkerOptions))
     image = io.BytesIO()
@@ -30,7 +33,7 @@ def main():
         assert recognition['prediction']['state'] == 'no_hand'
         assert recognition['prediction']['stable_label'] is None
         assert recognition['frame_latency_ms'] >= 0
-        print('PASS: CPU Tasks initialization, browser assets, health, JPEG → detection → no-hand response')
+        print('PASS: CPU Tasks initialization, browser assets, health, JPEG -> detection -> no-hand response')
 
 
 if __name__ == '__main__':
