@@ -106,7 +106,7 @@ def test_latency_filter_excludes_slow_models_and_records_latency(registry, tmp_p
     path = write_takes(tmp_path / 'takes.jsonl', synthetic_takes(per=2))
     fake_ms = {'random_forest': 25.0, 'logistic_regression': 0.5}
     monkeypatch.setattr(T, 'measure_latency', lambda name, model, x, repeats=30: fake_ms[name])
-    monkeypatch.setattr(T, 'feature_latency', lambda frames, repeats=30: 1.0)
+    monkeypatch.setattr(T, 'feature_latency', lambda frames, repeats=30, feature_schema=F.SCHEMA: 1.0)
     bundle, metrics = T.train(path, tmp_path / 'm', candidates=('random_forest', 'logistic_regression'),
                               model_card=None, log=lambda *_: None, max_latency_ms=10)
     assert bundle['algorithm'] == 'logistic_regression'

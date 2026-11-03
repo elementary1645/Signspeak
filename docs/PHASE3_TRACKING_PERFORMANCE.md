@@ -1,5 +1,8 @@
 # Phase 3 browser tracking performance
 
+This report describes the original 15 FPS optimization. The separately versioned
+8 FPS implementation is documented in [PHASE3_LOWER_FPS_PROTOCOL.md](PHASE3_LOWER_FPS_PROTOCOL.md).
+
 The previous loop called synchronous hand inference and then synchronous pose inference
 on the UI thread. Initializing with Promise.all did not make per-frame inference parallel.
 Google documents that [detectForVideo blocks its calling thread](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/web_js).

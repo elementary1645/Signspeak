@@ -35,6 +35,7 @@ from sklearn.svm import SVC
 from . import features, vocab
 from .model import BUNDLE_VERSION, DEFAULT_MODEL, decide
 from .takes import load_takes
+from .capture import accepted_protocols, for_schema, require_training_protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TAKES = ROOT / 'data/processed/takes.jsonl'
@@ -78,13 +79,15 @@ def select_takes(takes, admitted, drop_unverified=False):
     return kept, dict(problems)
 
 
-def build_windows(takes, mirror_augment=False):
+def build_windows(takes, mirror_augment=False, feature_schema=features.SCHEMA):
+    require_training_protocol(takes, feature_schema)
+    temporal = features.for_schema(feature_schema)
     rows = {'x': [], 'y': [], 'take': [], 'signer': [], 'session': [], 'mirrored': []}
     for meta, frames in takes:
         variants = [(frames, False)] + ([(features.mirror(frames), True)] if mirror_augment else [])
         for variant, mirrored in variants:
-            for window in features.take_windows(variant):
-                rows['x'].append(features.summarize(window))
+            for window in temporal.take_windows(variant):
+                rows['x'].append(temporal.summarize(window))
                 rows['y'].append(meta['label'])
                 rows['take'].append(meta['take_id'])
                 rows['signer'].append(meta['signer_id'])
@@ -185,25 +188,31 @@ def measure_latency(name, model, x, repeats=30):
     return float(np.median(times))
 
 
-def feature_latency(frames, repeats=30):
+def feature_latency(frames, repeats=30, feature_schema=features.SCHEMA):
     """Median ms to build + summarize one live window (same for every model)."""
+    temporal = features.for_schema(feature_schema)
     times = []
     for i in range(repeats + 5):
         started = time.perf_counter()
-        features.summarize(features.latest_window(frames))
+        temporal.summarize(temporal.latest_window(frames))
         if i >= 5:
             times.append((time.perf_counter() - started) * 1000)
     return float(np.median(times))
 
 
 def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverified=False, mirror_augment=False,
-          candidates=tuple(CANDIDATES), model_card=MODEL_CARD, log=print, max_latency_ms=DEFAULT_MAX_LATENCY_MS):
+          candidates=tuple(CANDIDATES), model_card=MODEL_CARD, log=print, max_latency_ms=DEFAULT_MAX_LATENCY_MS,
+          feature_schema=features.SCHEMA):
+    temporal = features.for_schema(feature_schema)
+    capture_protocol, timing = for_schema(feature_schema)
     takes_path = Path(takes_path)
     if not takes_path.exists():
         raise TrainingError(f'No merged takes at {takes_path}. Record on /collect, then run python -m scripts.merge_takes <files>')
     dataset_sha256 = hashlib.sha256(takes_path.read_bytes()).hexdigest()
     admitted = vocab.verified()
-    takes, dropped = select_takes(load_takes(takes_path), admitted, drop_unverified)
+    loaded = load_takes(takes_path)
+    require_training_protocol(loaded, feature_schema)
+    takes, dropped = select_takes(loaded, admitted, drop_unverified)
     label_counts = Counter(meta['label'] for meta, _ in takes)
     signs = sorted(l for l in label_counts if l != vocab.NONE_LABEL)
     if vocab.NONE_LABEL not in label_counts:
@@ -214,7 +223,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
     if thin:
         raise TrainingError(f'Each label needs at least 2 takes: {thin}')
     labels = signs + [vocab.NONE_LABEL]
-    data = build_windows(takes, mirror_augment)
+    data = build_windows(takes, mirror_augment, feature_schema)
     folds, scheme, measured = make_folds(data)
     if not measured:
         log(NO_SIGNER_WARNING)
@@ -231,7 +240,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         comparison[name] = float(f1_score(y, pred, labels=labels, average='macro', zero_division=0))
         log(f'  {name:20s} closed-set macro-F1 {comparison[name]:.3f} ({scheme})')
     # Deploy budget: fit each candidate on all data and time one live prediction.
-    feature_ms = feature_latency(takes[0][1])
+    feature_ms = feature_latency(takes[0][1], feature_schema=feature_schema)
     fitted, latency = {}, {}
     for name in candidates:
         fitted[name] = single_threaded(CANDIDATES[name]().fit(data['x'], data['y']))
@@ -288,8 +297,10 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
               'takes_dropped_unverified': dropped}
     model = fitted[chosen]
     bundle = {
-        'bundle_version': BUNDLE_VERSION, 'schema': features.SCHEMA, 'feature_dim': features.SUMMARY_DIM,
-        'window': features.WINDOW, 'fps': features.FPS, 'model': model, 'labels': [str(c) for c in model.classes_],
+        'bundle_version': BUNDLE_VERSION, 'schema': temporal.SCHEMA, 'feature_dim': temporal.SUMMARY_DIM,
+        'capture_protocol': capture_protocol, 'accepted_capture_protocols': accepted_protocols(feature_schema),
+        'temporal': timing,
+        'window': temporal.WINDOW, 'fps': temporal.FPS, 'model': model, 'labels': [str(c) for c in model.classes_],
         'algorithm': chosen, 'thresholds': thresholds,
         'vocab_fingerprint': vocab.selection_fingerprint(admitted, signs),
         'vocabulary': {s: admitted[s] for s in signs}, 'dataset_sha256': dataset_sha256,
@@ -329,6 +340,7 @@ def write_model_card(path, bundle, metrics):
 
 - Trained: {bundle['trained_at']} · algorithm **{bundle['algorithm']}** · scikit-learn {bundle['sklearn_version']}
 - Data: {bundle['counts']['takes']} takes, {bundle['counts']['signers']} signers, {bundle['counts']['sessions']} sessions, {bundle['counts']['windows']} windows · dataset sha256 `{bundle['dataset_sha256'][:16]}…`
+- Features: {bundle['schema']} · capture protocol {bundle['capture_protocol']} · {bundle['window']} frames at {bundle['fps']} FPS
 - Labels: {', '.join(bundle['labels'])}
 - Evaluation: **{metrics['scheme']}**{'' if metrics['generalisation_to_unseen_signers_measured'] else ' · **generalisation to unseen signers NOT measured**'}
 - Model comparison (closed-set macro-F1): {', '.join(f'{k} {v:.3f}' for k, v in metrics['model_comparison_closed_set_macro_f1'].items())}
@@ -349,6 +361,8 @@ def write_model_card(path, bundle, metrics):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--feature-schema', choices=['hp-v1', 'hp-v2-8fps'], default='hp-v1',
+                        help='explicit temporal version; hp-v2-8fps requires separately tagged 8 FPS takes')
     parser.add_argument('--takes', default=str(DEFAULT_TAKES))
     parser.add_argument('--out', default=str(DEFAULT_MODEL.parent))
     parser.add_argument('--drop-unverified', action='store_true', help='leave out unverified labels instead of refusing')
@@ -364,7 +378,8 @@ def main():
         parser.exit(2, f'Unknown model in --models; choose from {",".join(CANDIDATES)}\n')
     try:
         bundle, metrics = train(args.takes, args.out, args.drop_unverified, args.mirror_augment, candidates,
-                                None if args.no_model_card else MODEL_CARD, max_latency_ms=args.max_latency_ms)
+                                None if args.no_model_card else MODEL_CARD, max_latency_ms=args.max_latency_ms,
+                                feature_schema=args.feature_schema)
     except (TrainingError, ValueError, OSError) as exc:
         parser.exit(2, f'Training not run: {exc}\n')
     print(json.dumps({'chosen': bundle['algorithm'], 'thresholds': bundle['thresholds'],

@@ -1,12 +1,15 @@
-# SignSpeak hp-v1 live recognizer: model card
+# SignSpeak live recognizer: model card
 
 **Intended use.** A hackathon prototype that recognises a small, human-verified set of
 Indian Sign Language (ISL) signs from webcam landmarks and shows their meaning in English,
 Kannada, Hindi or Tamil. It is not a translator, and it must not be used for medical,
 emergency or legal communication.
 
-**Inputs.** Browser MediaPipe hand (up to 2) and upper-body pose landmarks at about 15 fps
-(lm-v1). No images. Features: hp-v1 window summaries over 1.6 s (see `docs/data_schema.md`).
+**Inputs.** Browser MediaPipe hand (up to 2) and upper-body pose landmarks (lm-v1).
+No images. New collection uses hp-v2-8fps: 16 actual frames at nominal 8 FPS over about
+2 seconds. The original hp-v1 representation remains available: a 24-frame 15 FPS grid
+over about 1.6 seconds. Models declare one feature/capture version and cannot be
+interchanged. See `docs/data_schema.md` and `docs/PHASE3_LOWER_FPS_PROTOCOL.md`.
 
 **Model.** A CPU scikit-learn classifier, chosen from RandomForest, ExtraTrees,
 LogisticRegression and RBF-SVM by grouped out-of-fold macro-F1. A reserved NONE class

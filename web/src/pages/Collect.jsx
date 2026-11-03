@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { APP_VERSION, FRAME_SCHEMA, TAKE_SCHEMA, frameQuality } from '../lib/lm.js';
-import { CAPTURE_MAX_MS, LOW_FPS, captureDone, sessionSummary, takeVerdict } from '../lib/capture.js';
+import { CAPTURE_MAX_MS, DEFAULT_PROTOCOL, PROTOCOLS, captureDone, sessionSummary, takeVerdict, timingInstructions } from '../lib/capture.js';
 import { deleteTakes, loadTakes, saveTake, takesToJsonl } from '../lib/takeStore.js';
 
 const PSEUDONYM = /^[A-Za-z0-9_-]{1,48}$/;
@@ -16,6 +16,8 @@ export default function Collect() {
   const [session, setSession] = useState(`s${today()}`);
   const [consent, setConsent] = useState(false);
   const [label, setLabel] = useState('');
+  const [protocol, setProtocol] = useState(DEFAULT_PROTOCOL);
+  const spec = PROTOCOLS[protocol];
   const [phase, setPhase] = useState('idle'); // idle | countdown | recording | review
   const [count, setCount] = useState(0);
   const [pending, setPending] = useState(null);
@@ -32,7 +34,7 @@ export default function Collect() {
     clearTimeout(c.safety);
     const frames = c.frames;
     const durationMs = Math.round(Math.min(CAPTURE_MAX_MS, performance.now() - c.start));
-    setPending({ frames, quality: frameQuality(frames), verdict: takeVerdict(frames), label: c.label, prompt: c.prompt, durationMs });
+    setPending({ frames, quality: frameQuality(frames), verdict: takeVerdict(frames, c.protocol), protocol: c.protocol, label: c.label, prompt: c.prompt, durationMs });
     setPhase('review');
   }, []);
 
@@ -40,9 +42,9 @@ export default function Collect() {
     const c = capture.current;
     if (!c || frame.t_ms < c.start) return;
     c.frames.push(frame);
-    if (captureDone(c.frames, c.start, frame.t_ms)) finish();
+    if (captureDone(c.frames, c.start, frame.t_ms, c.protocol)) finish();
   }, [finish]);
-  const cam = useLandmarks({ onFrame });
+  const cam = useLandmarks({ onFrame, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
 
   useEffect(() => {
     Promise.all([fetch('/api/config').then(r => r.json()), fetch('/api/vocabulary').then(r => r.json())])
@@ -63,13 +65,13 @@ export default function Collect() {
   const isNone = label === noneLabel;
   const sign = signs.find(s => s.label === label);
   const mine = useMemo(() => takes.filter(t => t.signer_id === signer), [takes, signer]);
-  const countFor = l => mine.filter(t => t.label === l).length;
+  const countFor = l => mine.filter(t => t.label === l && t.capture_protocol === protocol).length;
   const prompts = config?.none_prompts || [];
   const nonePrompt = prompts.length ? prompts[countFor(noneLabel) % prompts.length] : null;
   const ready = cam.status === 'running' && PSEUDONYM.test(signer) && PSEUDONYM.test(session) && consent && label;
   const labels = [...signs.map(s => s.label), noneLabel];
   const targets = config?.targets || { per_sign: 8, none: 16 };
-  const summary = sessionSummary(takes, signer, session, labels, targets, noneLabel);
+  const summary = sessionSummary(takes, signer, session, labels, targets, noneLabel, protocol);
 
   function record() {
     if (!ready || phase !== 'idle') return;
@@ -80,8 +82,8 @@ export default function Collect() {
     timers.current.push(setTimeout(() => {
       setPhase('recording');
       const start = performance.now();
-      // Stops at 26 frames or 3.0 s (whichever first); the safety timer covers a stalled camera.
-      capture.current = { start, frames: [], label, prompt: isNone ? nonePrompt : null,
+      // Keep the protocol selected at the start; never retag a pending take.
+      capture.current = { start, frames: [], protocol, label, prompt: isNone ? nonePrompt : null,
                           safety: setTimeout(finish, CAPTURE_MAX_MS + 150) };
     }, 3000));
   }
@@ -95,7 +97,7 @@ export default function Collect() {
       none_prompt: pending.label === noneLabel ? pending.prompt?.id ?? null : null,
       app_version: APP_VERSION, recorded_at: new Date().toISOString(),
       capture_ms: Math.max(500, pending.durationMs),
-      consent: true, preview_mirrored: true, capture_protocol: 'hp-v1-timed-1',
+      consent: true, preview_mirrored: true, capture_protocol: pending.protocol,
       low_fps: pending.verdict.lowFps, measured_fps: Math.round(pending.verdict.fps * 10) / 10,
       frames: pending.frames,
     };
@@ -155,6 +157,15 @@ export default function Collect() {
           I agree to record hand and upper-body landmark data (no video) under this pseudonym for training SignSpeak.</label>
       </section>
 
+      <section className="card">
+        <label>Collection protocol <select aria-label="Collection protocol" value={protocol}
+          disabled={phase !== 'idle' || cam.status === 'running' || cam.status === 'loading'} onChange={e => setProtocol(e.target.value)}>
+          <option value="hp-v2-8fps-timed-1">hp-v2-8fps: 16 frames, about 2 seconds (recommended)</option>
+          <option value="hp-v1-timed-1">hp-v1: 24-frame window at 15 FPS</option>
+        </select></label>
+        <p>{timingInstructions(protocol)} Use CPU on the tested laptop. Keep hands and shoulders visible throughout the sign.</p>
+        <p className="muted">The selected protocol controls inference FPS. Stop the camera to switch. Summary targets count only this protocol; downloads include all protocols with their original tags.</p>
+      </section>
       <CameraView cam={cam} />
 
       <section className="card">
@@ -175,7 +186,7 @@ export default function Collect() {
           </div>
         )}
         {isNone && nonePrompt && <p><strong>NONE prompt:</strong> {nonePrompt.text}</p>}
-        {cam.stats.fps != null && cam.stats.fps < LOW_FPS && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {LOW_FPS}. Close other apps or tabs and improve the lighting. Takes outside the hp-v1 timing contract cannot be kept.</p>}
+        {cam.stats.fps != null && cam.stats.fps < spec.minFps && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {spec.minFps}. Close other apps or tabs and improve the lighting. Takes outside the selected timing contract cannot be kept.</p>}
 
         {phase === 'idle' && <button className="btn primary" onClick={record} disabled={!ready}>Record take</button>}
         {!ready && phase === 'idle' && <p className="muted">Start the camera, enter a pseudonym and session, and tick consent.</p>}
@@ -186,7 +197,7 @@ export default function Collect() {
             <p>{pending.label}: {pending.quality.frames} frames over {(pending.quality.durationMs / 1000).toFixed(2)} s
               ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
               upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
-            {!verdict.valid && <p className="notice error">Timing contract failed: need at least 24 distinct frames, 14–17 effective FPS, no gap over 100 ms, and a span of 1.38–1.85 s. Discard and retry with another delegate or lower resolution.</p>}
+            {!verdict.valid && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
             {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
             {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
             {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}
@@ -201,7 +212,7 @@ export default function Collect() {
 
       {signer && PSEUDONYM.test(signer) && (
         <section className="card">
-          <h2>Summary for {signer}</h2>
+          <h2>Summary for {signer} · {protocol}</h2>
           <p className={summary.complete ? 'notice ok' : 'notice warn'} role="status">
             {summary.complete ? `Complete: all targets met (${summary.total} takes). Download the data before you leave.`
               : `Not complete yet. Still needed: ${summary.missing.join(', ')}.`}

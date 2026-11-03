@@ -26,8 +26,8 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
           <label>Resolution <select aria-label="Resolution" value={cam.settings.width} onChange={e => cam.setSettings(s => ({ ...s, width: Number(e.target.value) }))}>
             <option value={320}>320×240</option><option value={640}>640×480</option><option value={1280}>1280×960</option>
           </select></label>
-          <label>Inference FPS <select aria-label="Inference FPS" value={cam.settings.fps} onChange={e => cam.setSettings(s => ({ ...s, fps: Number(e.target.value) }))}>
-            {[5, 10, 15, 20, 30].map(n => <option key={n}>{n}</option>)}
+          <label>Inference FPS <select aria-label="Inference FPS" disabled={cam.requiredFps != null} value={cam.settings.fps} onChange={e => cam.setSettings(s => ({ ...s, fps: Number(e.target.value) }))}>
+            {[5, 8, 10, 15, 20, 30].map(n => <option key={n}>{n}</option>)}
           </select></label>
           <label>Delegate <select aria-label="Delegate" value={cam.settings.delegate} onChange={e => cam.setSettings(s => ({ ...s, delegate: e.target.value }))}>
             <option>GPU</option><option>CPU</option>

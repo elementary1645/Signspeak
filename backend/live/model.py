@@ -9,10 +9,11 @@ import joblib
 import numpy as np
 import sklearn
 from . import features, vocab
+from .capture import accepted_protocols, for_schema
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = ROOT / 'backend/models/live/model.joblib'
-BUNDLE_VERSION = 'hp-live-1'
+BUNDLE_VERSION = 'hp-live-2'
 
 
 def model_path():
@@ -40,9 +41,14 @@ class LiveModel:
     def __init__(self, path, admitted):
         bundle = joblib.load(Path(path))
         if not isinstance(bundle, dict) or bundle.get('bundle_version') != BUNDLE_VERSION:
-            raise ValueError('Not an hp-v1 live bundle; retrain with python -m backend.live.train')
-        if (bundle.get('schema') != features.SCHEMA or bundle.get('feature_dim') != features.SUMMARY_DIM
-                or bundle.get('window') != features.WINDOW or bundle.get('fps') != features.FPS):
+            raise ValueError('Not a versioned hp live bundle; retrain with python -m backend.live.train')
+        temporal = features.for_schema(bundle.get('schema'))
+        capture_protocol, timing = for_schema(temporal.SCHEMA)
+        if (bundle.get('feature_dim') != temporal.SUMMARY_DIM
+                or bundle.get('window') != temporal.WINDOW or bundle.get('fps') != temporal.FPS
+                or bundle.get('capture_protocol') != capture_protocol
+                or bundle.get('accepted_capture_protocols') != accepted_protocols(temporal.SCHEMA)
+                or bundle.get('temporal') != timing):
             raise ValueError('Feature schema/window mismatch; retrain')
         if bundle.get('sklearn_version') != sklearn.__version__:
             raise ValueError(f'scikit-learn {bundle.get("sklearn_version")} bundle, {sklearn.__version__} installed; retrain or use the lock file')
@@ -64,13 +70,15 @@ class LiveModel:
             raise ValueError('Invalid thresholds')
         self.bundle, self.model, self.labels, self.thresholds = bundle, model, labels, thresholds
         self.signs = signs
+        self.features = temporal
+        self.capture_protocol = capture_protocol
 
     def compatible_with(self, admitted):
         return (all(label in admitted for label in self.signs)
                 and vocab.selection_fingerprint(admitted, self.signs) == self.bundle['vocab_fingerprint'])
 
     def predict(self, window):
-        x = features.summarize(window)
+        x = self.features.summarize(window)
         started = time.perf_counter()
         p = self.model.predict_proba(x[None, :])[0]
         latency_ms = (time.perf_counter() - started) * 1000
@@ -82,6 +90,8 @@ class LiveModel:
 
     def info(self):
         b = self.bundle
-        return {'labels': self.signs, 'algorithm': b['algorithm'], 'trained_at': b['trained_at'],
+        return {'schema': b['schema'], 'fps': b['fps'], 'window': b['window'],
+                'capture_protocol': self.capture_protocol, 'accepted_capture_protocols': b['accepted_capture_protocols'],
+                'temporal': b['temporal'], 'labels': self.signs, 'algorithm': b['algorithm'], 'trained_at': b['trained_at'],
                 'thresholds': self.thresholds, 'signers': b['counts']['signers'],
                 'generalisation_to_unseen_signers_measured': b['generalisation_to_unseen_signers_measured']}

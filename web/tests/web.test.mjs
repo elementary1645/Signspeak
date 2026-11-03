@@ -169,3 +169,50 @@ test('frame timestamps preserve actual camera intervals and never fabricate prog
   assert.equal(clock.timestamp(10.3, 5600), 5300); // completion delay is not capture time
   assert.equal(clock.timestamp(NaN, 5700), null);
 });
+
+import { DEFAULT_PROTOCOL, PROTOCOLS, timingInstructions } from '../src/lib/capture.js';
+test('8 FPS contract accepts laptop rates and preserves all source timestamps', () => {
+  const protocol = DEFAULT_PROTOCOL;
+  assert.equal(PROTOCOLS[protocol].window, 16);
+  for (const fps of [7, 7.5, 8, 8.8, 9, 9.2, 9.5]) {
+    const frames = framesAt(fps, 16).map(f => ({ t_ms: Math.round(f.t_ms) }));
+    const before = JSON.stringify(frames);
+    assert.equal(takeVerdict(frames, protocol).valid, true, `rate ${fps}`);
+    assert.equal(JSON.stringify(frames), before);
+  }
+  assert.equal(captureDone(framesAt(8, 15), 1000, 2800, protocol), false);
+  assert.equal(captureDone(framesAt(8, 16), 1000, 2875, protocol), true);
+  assert.match(timingInstructions(protocol), /Exactly 16/);
+});
+test('8 FPS contract rejects count, rate and gap violations; old protocol stays separate', () => {
+  for (const [fps, n] of [[5, 16], [6.9, 16], [10, 16], [15, 16], [8, 15], [8, 17]]) {
+    assert.equal(takeVerdict(framesAt(fps, n), DEFAULT_PROTOCOL).valid, false);
+  }
+  for (const delta of [-125, -130, -50, 75, NaN]) {
+    const frames = framesAt(8, 16); frames[5].t_ms += delta;
+    assert.equal(takeVerdict(frames, DEFAULT_PROTOCOL).valid, false);
+  }
+  assert.equal(takeVerdict(framesAt(8, 16), 'hp-v1-timed-1').valid, false);
+  assert.equal(takeVerdict(framesAt(15, 26), 'hp-v1-timed-1').valid, true);
+  assert.equal(takeVerdict(framesAt(8, 16), 'unknown').valid, false);
+});
+test('collection summary never counts other temporal protocols toward the selected target', () => {
+  const takes = [DEFAULT_PROTOCOL, 'hp-v1-timed-1', undefined].map(capture_protocol => ({
+    signer_id: 'p1', session_id: 's1', label: 'NONE', capture_protocol,
+  }));
+  assert.equal(sessionSummary(takes, 'p1', 's1', ['NONE'], { none: 2 }, 'NONE', DEFAULT_PROTOCOL).total, 1);
+});
+
+import { InferenceCadence } from '../src/lib/tracking.js';
+test('8 FPS scheduling avoids 20/30 FPS camera quantization and keeps a native 9 FPS source', () => {
+  for (const cameraFps of [9, 20, 30]) {
+    const cadence = new InferenceCadence(8, 9.5);
+    const times = [];
+    for (let i = 0; i < cameraFps * 4; i++) {
+      const t = i * 1000 / cameraFps;
+      if (cadence.ready(t, t)) { cadence.started(t); times.push(t); }
+    }
+    const frames = times.slice(-16).map(t_ms => ({ t_ms }));
+    assert.equal(takeVerdict(frames, DEFAULT_PROTOCOL).valid, true, `source ${cameraFps} FPS`);
+  }
+});

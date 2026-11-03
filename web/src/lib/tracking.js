@@ -64,3 +64,24 @@ export class FrameClock {
     return this.origin + mediaSeconds * 1000;
   }
 }
+
+// Keep the nominal cadence without losing whole camera periods to timer quantization.
+// A source already inside the accepted rate ceiling can supply every real frame.
+export class InferenceCadence {
+  constructor(fps, maxSourceFps = null) {
+    this.period = 1000 / fps;
+    this.maxSourceFps = maxSourceFps;
+    this.next = -Infinity;
+  }
+  ready(now, sourceMs) {
+    const gap = this.previousSource == null ? 0 : sourceMs - this.previousSource;
+    this.previousSource = sourceMs;
+    if (this.maxSourceFps == null) return now + 2 >= this.next;
+    if (gap >= 1000 / this.maxSourceFps) return true;
+    return now + Math.min(Math.max(gap, 0) / 2, this.period / 2) + 2 >= this.next;
+  }
+  started(now) {
+    this.next = this.maxSourceFps == null ? now + this.period
+      : Math.max(Number.isFinite(this.next) ? this.next + this.period : now + this.period, now);
+  }
+}

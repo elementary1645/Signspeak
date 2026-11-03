@@ -1,7 +1,7 @@
 """Live recognition: WebSocket /ws/recognize, POST /api/predict fallback, /ready.
 
-Both transports share one contract. The client sends lm-v1 frames (~15 fps); the server
-keeps a per-connection buffer, predicts every 3rd frame on the latest 24-frame window and
+Both transports share one contract. The client sends lm-v1 frames at the loaded model's
+rate; the server predicts every 3rd frame on that version's temporal window and
 replies with a state message. With no compatible model it says so and never guesses.
 
 States: INITIALIZING, READY, DETECTING, RECOGNIZING, RECOGNIZED, UNKNOWN, NO_HAND, ERROR.
@@ -79,7 +79,7 @@ class LiveService:
             if not ready:
                 code, detail = 'MODEL_INCOMPATIBLE', 'Vocabulary changed since training; retrain and restart'
         return {'ready': ready, 'code': None if ready else code, 'detail': None if ready else detail,
-                'model': self.model.info() if ready else None, 'schema': features.SCHEMA}
+                'model': self.model.info() if ready else None, 'schema': self.model.features.SCHEMA if ready else features.SCHEMA}
 
 
 class RateLimiter:
@@ -145,9 +145,16 @@ class Session:
         if not any(f['hands'] for f in recent):
             self.stabilizer.update({'state': 'no_hand', 'label': None}, now)
             return dict(base, state='NO_HAND')
-        window = features.latest_window(list(self.frames), list(self.vectors))
+        temporal = getattr(self.service.model, 'features', features)
+        try:
+            window = temporal.latest_window(list(self.frames), list(self.vectors))
+        except ValueError:
+            self.stabilizer.update({'state': 'detecting', 'label': None}, now)
+            return dict(base, state='DETECTING', code='INSUFFICIENT_TIMING',
+                        detail='Need 16 distinct frames at 7–9.5 FPS, span 1.55–2.20 s, gaps 80–190 ms. Check tracking settings.')
         hand_rate = (window[:, 148:150].max(axis=1) > 0.5).mean()
-        if self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] < 0.9 * (features.WINDOW - 1) * features.PERIOD_MS \
+        if (temporal.SCHEMA == features.SCHEMA
+                and self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] < 0.9 * (temporal.WINDOW - 1) * temporal.PERIOD_MS) \
                 or hand_rate < MIN_HAND_RATE:
             self.stabilizer.update({'state': 'detecting', 'label': None}, now)
             return dict(base, state='DETECTING')

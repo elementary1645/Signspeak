@@ -20,10 +20,10 @@ model is trained.** Until then `/translate` says "Model not trained yet" and nev
 guesses. See [the human steps](#what-needs-a-human).
 
 ```
-browser: camera → MediaPipe Hand (2) + Pose lite, ~15 fps → lm-v1 landmarks
-  /collect  → takes of 26 frames or 3 s (autosaved in IndexedDB) → "Download my data" (.jsonl) → scripts/merge_takes.py
+browser: camera → MediaPipe Hand (2) + Pose lite, nominal 8 fps (15 fps option) → lm-v1 landmarks
+  /collect  → 16 actual frames over ~2 s (3 s safety deadline) (autosaved in IndexedDB) → "Download my data" (.jsonl) → scripts/merge_takes.py
   /translate → WebSocket /ws/recognize (or POST /api/predict)
-server (Python): hp-v1 features → sklearn model → NONE/threshold rejection → smoothing → state
+server (Python): versioned hp-v2-8fps / hp-v1 features → sklearn model → NONE/threshold rejection → smoothing → state
 ```
 
 ## Run it
@@ -74,11 +74,14 @@ starting uvicorn. Takes go to `data/raw/takes/` (git-ignored).
 2. **Collect:** each signer follows [docs/COLLECTION_PROTOCOL.md](docs/COLLECTION_PROTOCOL.md)
    on `/collect` (about 25 minutes: 8 takes per sign plus 16 guided NONE takes) and downloads a `.jsonl`.
 3. **Merge:** `python -m scripts.merge_takes <files or folders>` writes `data/processed/takes.jsonl`.
-4. **Train:** `python -m backend.live.train`. It refuses unverified labels (NONE excepted),
+4. **Train:** `python -m backend.live.train --feature-schema hp-v2-8fps`. It refuses unverified labels (NONE excepted),
    compares RF/ExtraTrees/LogReg/SVM by grouped macro-F1 (leave-one-signer-out with 3 or more
    signers), tunes rejection thresholds on validation folds, and writes
    `backend/models/live/{model.joblib,metrics.json}` and the [model card](docs/MODEL_CARD.md).
    Options: `--drop-unverified`, `--mirror-augment`, `--models svm_rbf,random_forest`.
+   Use a single capture protocol per training file. The original `--feature-schema hp-v1`
+   path remains available; versions are never mixed or automatically converted. See
+   [the lower-rate protocol and validation report](docs/PHASE3_LOWER_FPS_PROTOCOL.md).
 5. **Voice:** `python -m scripts.generate_audio` makes mp3s for every verified sign in all
    four languages (edge-tts Indian voices, gTTS fallback; needs `pip install -r requirements-tools.txt`).
 6. **Restart the server** (or redeploy). `/ready` returns 200 only when a compatible model
@@ -88,7 +91,7 @@ starting uvicorn. Takes go to `data/raw/takes/` (git-ignored).
 
 ```powershell
 python -m scripts.merge_takes <downloaded .jsonl files or folders>
-python -m backend.live.train
+python -m backend.live.train --feature-schema hp-v2-8fps
 python -m scripts.generate_audio
 cd web; npm run build; cd ..                    # local use only; hosts build their own
 $env:HF_TOKEN = "<write token>"
@@ -123,7 +126,7 @@ and its metrics say nothing about recognition quality.
 ## Layout
 
 - `web/`: Vite + React app (`/collect`, `/translate`), browser MediaPipe, shared landmark hook.
-- `backend/live/`: Phase 3 protocol, hp-v1 features, vocabulary gate v2, takes, training, model bundle, live service, single-origin serving.
+- `backend/live/`: Phase 3 protocols, hp-v1 and hp-v2-8fps features, vocabulary gate v2, takes, training, model bundle, live service, single-origin serving.
 - `backend/app/`, `backend/training/`, `backend/sequence/`, `frontend/`: Phase 1/2 hands-v1 lab and Holistic experiments (kept working, not extended).
 - `data/metadata/`: `vocabulary.json` (one registry; hp-v1 entries carry `"pipeline": "hp-v1"`), `translations.json`.
 - `scripts/`: `download_model.py`, `verify_sign.py`, `merge_takes.py`, legacy tools.

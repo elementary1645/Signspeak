@@ -21,15 +21,35 @@ For each person recording takes on `/collect`, and for the teammate running the 
   sleeves help. Check that the overlay shows both shoulders and that "your left" and
   "your right" match your real hands (raise one at a time).
 
+## Choose the capture protocol
+
+The default is **hp-v2-8fps-timed-1**, using 16 actual hand+pose frames over about
+2 seconds. On the tested Windows laptop choose **CPU**, starting at **640×480**;
+320×240 is available if landmark quality remains good. Measured CPU tracking of
+8.8–9.2 FPS is compatible; GPU tracking at 4–5 FPS is insufficient.
+
+Warm up for ten seconds. Check both hands, shoulders and handedness before recording.
+The protocol locks requested inference FPS to 8. Actual source timestamps are preserved;
+there is no padding or interpolation. A valid take needs exactly 16 frames, 7–9.5 effective
+FPS, first-to-last span 1.55–2.20 seconds, and every adjacent gap 80–190 ms. Rate checks
+allow 1 ms on the whole span for timestamp rounding. At nominal 8 FPS, 15 intervals span
+1.875 seconds. A uniform 9 FPS take spans 1.667 seconds and passes.
+
+Stop the camera to select the original **hp-v1-timed-1** option (15 FPS, 24-frame model
+window; collector stops at 26). Do not mix its recordings with 8 FPS training data.
+The summary counts only the selected protocol. Downloads retain all takes with their
+original protocol tags; old takes are never automatically upgraded.
+
 ## Signs (about 15 min)
 
 For each sign in the list:
 
 1. Open the official link shown on the page and watch it. Read the notes.
 2. Press **Record take**. After the 3-2-1 countdown, perform the sign once. Recording
-   stops by itself after about 1.7 s at a normal frame rate (26 frames), or 3 s at most.
-   Start from rest, sign, and return to rest. Watch the fps line under the camera: below
-   12 fps, takes are marked `low_fps`. Close other apps and improve the light.
+   stops at 16 real frames (about 2 seconds) or the three-second safety deadline.
+   Start from rest, sign, and return to rest. If the FPS warning appears or timing fails,
+   **Keep** is disabled: discard, close other apps, improve lighting, and retry CPU or
+   another resolution. Never stretch a slow/incomplete take or duplicate frames.
 3. Press **Keep** if the sign was correct and the hands were visible. Otherwise press
    **Discard** and try again.
 4. Do 8 takes per sign. Vary them a little: slight changes in position, speed and
@@ -58,9 +78,18 @@ checking a phone). Follow it naturally until recording stops. NONE teaches the m
 
 ```bash
 python -m scripts.merge_takes path/to/*.jsonl          # validates, de-duplicates, reports per signer
-python -m backend.live.train                            # refuses unverified labels; prints metrics
+# Run only after gathering complete real data and human verification of every sign:
+python -m backend.live.train --feature-schema hp-v2-8fps  # refuses mismatched protocols and unverified labels
+# Original protocol remains available with a separate dataset/model:
+# python -m backend.live.train --takes path/to/hp-v1-only.jsonl --feature-schema hp-v1
 # restart the server so /translate loads backend/models/live/model.joblib
 ```
 
 Aim for **at least 3 signers**, so the trainer can measure accuracy on unseen people
 (leave-one-signer-out). With fewer, it trains but warns that this was not measured.
+
+The lower-rate trainer refuses untagged legacy takes, hp-v1 takes and mixed-protocol
+files; choose protocol-specific downloads/files for each training run. The merge command
+preserves tags and may merge multiple protocols for archival purposes, but the trainer
+will refuse that mixed file. Do not bypass vocabulary verification to start collection
+or training. No recognition quality is established until real held-out signers are tested.

@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from . import vocab
+from .capture import PROTOCOLS
 from .model import model_path
 from .takes import NONE_PROMPTS, validate_take
 
@@ -33,7 +34,8 @@ def translations():
 def config():
     return {'app_version': APP_VERSION, 'server_save': collection_enabled(),
             'none_label': vocab.NONE_LABEL, 'none_prompts': list(NONE_PROMPTS),
-            'targets': {'per_sign': TAKES_PER_SIGN, 'none': TAKES_NONE}, 'capture_ms': 2000}
+            'targets': {'per_sign': TAKES_PER_SIGN, 'none': TAKES_NONE}, 'capture_ms': 2000,
+            'capture_protocols': PROTOCOLS, 'default_capture_protocol': 'hp-v2-8fps-timed-1'}
 
 
 @router.get('/vocabulary')
@@ -86,6 +88,8 @@ def model_report(request: Request):
         open_set = metrics['open_set_with_rejection']
         return {
             'trained': True, 'loaded': status['ready'], 'load_detail': status['detail'],
+            'schema': bundle['schema'], 'capture_protocol': bundle.get('capture_protocol'),
+            'accepted_capture_protocols': bundle.get('accepted_capture_protocols'),
             'model_type': bundle['algorithm'], 'labels': bundle['labels'],
             'trained_at': bundle['trained_at'], 'sklearn_version': bundle['sklearn_version'],
             'counts': bundle['counts'], 'vocabulary_version': bundle['vocab_fingerprint'][:12],

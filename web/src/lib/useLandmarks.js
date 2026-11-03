@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { drawOverlay, toFrame } from './lm.js';
 import { FpsMeter } from './capture.js';
-import { FrameClock, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
+import { FrameClock, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
-export function useLandmarks({ onFrame, fps = 15 }) {
+export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const session = useRef(null);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
-  const [settings, setSettings] = useState({ width: 640, fps, delegate: 'GPU' });
+  const [settings, setSettings] = useState({ width: 640, fps, delegate: 'CPU' });
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [lastFrame, setLastFrame] = useState(null);
@@ -33,6 +33,7 @@ export function useLandmarks({ onFrame, fps = 15 }) {
   }, []);
 
   const start = useCallback(async () => {
+    const effectiveFps = requiredFps ?? settings.fps;
     if (session.current) return; // includes loading, not just a resolved camera stream
     const s = { workers: [], loop: null, stream: null };
     session.current = s;
@@ -49,7 +50,7 @@ export function useLandmarks({ onFrame, fps = 15 }) {
       // Acquire sequentially so every late stream and every worker has a cleanup owner.
       const stream = await navigator.mediaDevices.getUserMedia({ video: {
         width: { ideal: settings.width }, height: { ideal: settings.width * 3 / 4 },
-        frameRate: { ideal: Math.max(30, settings.fps) }, facingMode: 'user',
+        frameRate: { ideal: Math.max(30, effectiveFps) }, facingMode: 'user',
       }, audio: false });
       if (!active()) { stream.getTracks().forEach(t => t.stop()); return; }
       s.stream = stream;
@@ -67,7 +68,8 @@ export function useLandmarks({ onFrame, fps = 15 }) {
       const meter = new FpsMeter(3000);
       const timings = new TimingWindow();
       const clock = new FrameClock();
-      let last = -Infinity, lastStats = -Infinity;
+      const cadence = new InferenceCadence(effectiveFps, maxSourceFps);
+      let lastStats = -Infinity;
       let busy = false;
       const schedule = () => {
         if (!active()) return;
@@ -79,11 +81,13 @@ export function useLandmarks({ onFrame, fps = 15 }) {
         schedule();
         const now = performance.now();
         // Polling can be faster than the camera; never infer the same source frame twice.
-        if (busy || now - last < 1000 / settings.fps - 2 || video.readyState < 2) return;
-        const timestamp = clock.timestamp(metadata?.mediaTime ?? video.currentTime, now);
+        const source = metadata?.mediaTime ?? video.currentTime;
+        const due = cadence.ready(now, source * 1000);
+        if (busy || !due || video.readyState < 2) return;
+        const timestamp = clock.timestamp(source, now);
         if (timestamp == null) return;
         busy = true;
-        last = now;
+        cadence.started(now);
         try {
           ctx.drawImage(video, 0, 0, input.width, input.height);
           // Both tasks see the exact same unmirrored snapshot and capture timestamp.
@@ -119,12 +123,12 @@ export function useLandmarks({ onFrame, fps = 15 }) {
       setStatus('running');
       schedule();
     } catch (err) { fail(err); }
-  }, [settings, stop]);
+  }, [settings, requiredFps, maxSourceFps, stop]);
 
   useEffect(() => stop, [stop]);
   useEffect(() => {
     window.addEventListener('pagehide', stop);
     return () => window.removeEventListener('pagehide', stop);
   }, [stop]);
-  return { videoRef, canvasRef, status, error, lastFrame, stats, settings, setSettings, start, stop };
+  return { videoRef, canvasRef, status, error, lastFrame, stats, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
 }

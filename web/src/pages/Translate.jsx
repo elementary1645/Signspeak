@@ -70,7 +70,15 @@ export default function Translate({ link }) {
   }, [say]);
 
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
-  const cam = useLandmarks({ onFrame });
+  const cam = useLandmarks({ onFrame, requiredFps: status?.ready ? status.model?.fps : null,
+    maxSourceFps: status?.ready && status.model?.temporal?.sampling === 'actual-frames' ? status.model.temporal.maxFps : null });
+
+  const modelProtocol = status?.ready ? status.model?.capture_protocol : null;
+  const previousProtocol = useRef(modelProtocol);
+  useEffect(() => {
+    if (previousProtocol.current !== modelProtocol && cam.status === 'running') cam.stop();
+    previousProtocol.current = modelProtocol;
+  }, [modelProtocol, cam.status, cam.stop]);
 
   useEffect(() => {
     if (cam.status !== 'running') return undefined;
@@ -109,6 +117,8 @@ export default function Translate({ link }) {
 
       <div className="translate-layout">
         <div>
+          {status?.ready && <p className="muted">Model: {status.model?.schema} · {status.model?.window} frames at {status.model?.fps} FPS.</p>}
+          {result?.code === 'INSUFFICIENT_TIMING' && <p className="notice warn" role="status">Tracking FPS is insufficient or uneven. {result.detail}</p>}
           <CameraView cam={cam} label="Mirrored camera preview with hand and upper-body tracking" />
           <p className="hint muted"><InfoIcon className="icon" style={{ width: 22, height: 22, flex: 'none' }} />
             Sit so your hands and shoulders are in view. Make the sign, then hold it for about a second.</p>
