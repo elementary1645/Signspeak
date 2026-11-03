@@ -10,6 +10,7 @@ import numpy as np
 import sklearn
 from . import features, vocab
 from .capture import accepted_protocols, for_schema
+from .hand_validation import POLICY
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = ROOT / 'backend/models/live/model.joblib'
@@ -50,6 +51,8 @@ class LiveModel:
                 or bundle.get('accepted_capture_protocols') != accepted_protocols(temporal.SCHEMA)
                 or bundle.get('temporal') != timing):
             raise ValueError('Feature schema/window mismatch; retrain')
+        if temporal.SCHEMA == 'hp-v2-8fps' and bundle.get('hand_validation') != POLICY:
+            raise ValueError('Hand observation validation policy mismatch; retrain with validated recordings')
         if bundle.get('sklearn_version') != sklearn.__version__:
             raise ValueError(f'scikit-learn {bundle.get("sklearn_version")} bundle, {sklearn.__version__} installed; retrain or use the lock file')
         labels = bundle.get('labels')
@@ -92,6 +95,6 @@ class LiveModel:
         b = self.bundle
         return {'schema': b['schema'], 'fps': b['fps'], 'window': b['window'],
                 'capture_protocol': self.capture_protocol, 'accepted_capture_protocols': b['accepted_capture_protocols'],
-                'temporal': b['temporal'], 'labels': self.signs, 'algorithm': b['algorithm'], 'trained_at': b['trained_at'],
+                'temporal': b['temporal'], 'hand_validation': b.get('hand_validation'), 'labels': self.signs, 'algorithm': b['algorithm'], 'trained_at': b['trained_at'],
                 'thresholds': self.thresholds, 'signers': b['counts']['signers'],
                 'generalisation_to_unseen_signers_measured': b['generalisation_to_unseen_signers_measured']}

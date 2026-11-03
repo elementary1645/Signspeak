@@ -198,3 +198,18 @@ the camera so the next start applies the model's contract. MediaPipe Hands + Pos
 landmark-only transport and consent/pseudonym requirements are unchanged. Existing human
 hp-v1 vocabulary approvals remain the admission gate for supported hand/body cues; no
 vocabulary entry is approved or rewritten by this temporal-version change.
+
+
+## Observation quality policy (pose-wrist-v1)
+
+New browser takes additionally record optional `hand_validation: pose-wrist-v1`.
+`web/src/lib/handValidation.json` defines the shared browser/Python geometry and detector
+threshold policy. Only geometrically supported hand candidates enter new raw recordings;
+no-hand source observations remain actual frames with empty hand lists. Local rejected
+candidate diagnostics are not part of lm-v1, take JSONL or live transport.
+
+Hp-v2 dataset admission rejects any stored hand failing this check, and live/feature
+inputs filter it defensively. New hp-v2 model manifests must include the full canonical
+`hand_validation` policy; older/mismatched policies fail closed. This explicitly versions
+observation acceptance while preserving hp-v2-8fps feature shapes/formulas, side assignment
+and timestamp rules. See [the rationale, limits and tests](PHASE3_HAND_VALIDATION.md).

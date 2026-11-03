@@ -216,3 +216,65 @@ test('8 FPS scheduling avoids 20/30 FPS camera quantization and keeps a native 9
     assert.equal(takeVerdict(frames, DEFAULT_PROTOCOL).valid, true, `source ${cameraFps} FPS`);
   }
 });
+
+import handCases from './fixtures/hand-validation.json' with { type: 'json' };
+import { POLICY, validateHands } from '../src/lib/handValidation.js';
+import { FreshFrame, validResultPair } from '../src/lib/tracking.js';
+test('browser geometry gate rejects false face detections and preserves face/chest/crossed signing', () => {
+  for (const c of handCases) {
+    const original = JSON.stringify(c.frame);
+    const result = validateHands(c.frame);
+    assert.deepEqual(displaySides(result.frame), c.sides, c.name);
+    assert.equal(result.frame.hands.length, c.sides.length, c.name);
+    assert.equal(JSON.stringify(c.frame), original, 'raw diagnostic input is not mutated');
+    assert.equal(result.diagnostics.rawCount, c.frame.hands.length);
+  }
+});
+test('geometry thresholds are configurable without any facial exclusion zone', () => {
+  const frame = structuredClone(handCases.find(c => c.name === 'single subject left ignores misleading handedness').frame);
+  frame.hands[0].landmarks[0][0] += 0.1;
+  assert.equal(validateHands(frame).frame.hands.length, 1);
+  assert.equal(validateHands(frame, { maxWristDistanceShoulders: 0.2 }).frame.hands.length, 0);
+  const falseFace = handCases[0].frame;
+  const recording = Array.from({ length: 16 }, (_, i) => validateHands({ ...falseFace, t_ms: 1000 + i * 125 }).frame);
+  assert.equal(takeVerdict(recording, DEFAULT_PROTOCOL).valid, true);
+  assert.ok(recording.every(f => f.hands.length === 0));
+  assert.ok(!takesToJsonl([{ frames: recording }]).includes('0.99'));
+});
+test('synchronized workers reject timestamp/kind mix-ups and expired inference', () => {
+  const hand = { timestamp: 100, kind: 'hand' }, pose = { timestamp: 100, kind: 'pose' };
+  assert.equal(validResultPair(hand, pose, 100, 80), true);
+  assert.equal(validResultPair(hand, { ...pose, timestamp: 101 }, 100, 80), false);
+  assert.equal(validResultPair(pose, hand, 100, 80), false);
+  assert.equal(validResultPair(hand, pose, 100, POLICY.maxResultAgeMs + 1), false);
+});
+test('no-hand updates, expiry, stop and out-of-order results cannot leave stale hands on screen', () => {
+  let now = 100;
+  const published = [], timers = new Map(); let id = 0;
+  const fresh = new FreshFrame(f => published.push(f), { now: () => now,
+    setTimer: fn => { timers.set(++id, fn); return id; }, clearTimer: key => timers.delete(key) });
+  const hand = handCases[2].frame;
+  assert.equal(fresh.accept(hand, 90), true);
+  assert.equal(fresh.accept({ ...hand, t_ms: 999 }, 90), false);
+  assert.equal(fresh.accept({ ...hand, t_ms: 1001, hands: [] }, 90), true);
+  assert.equal(published.at(-1).hands.length, 0);
+  timers.get(id)();
+  assert.equal(published.at(-1), null);
+  now = 900;
+  assert.equal(fresh.accept({ ...hand, t_ms: 1002 }, 100), false);
+  fresh.close();
+  assert.equal(fresh.accept({ ...hand, t_ms: 1003 }, 900), false);
+});
+
+test('a queued expiry for an older observation cannot clear a newer frame', () => {
+  const output = [], timers = [];
+  const fresh = new FreshFrame(f => output.push(f), { now: () => 100,
+    setTimer: fn => { timers.push(fn); return timers.length; }, clearTimer: () => {} });
+  fresh.accept({ t_ms: 100 }, 100);
+  fresh.accept({ t_ms: 200 }, 100);
+  timers[0]();
+  assert.equal(output.at(-1).t_ms, 200);
+  fresh.close();
+  timers[1]();
+  assert.equal(output.at(-1).t_ms, 200);
+});

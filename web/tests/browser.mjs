@@ -2,6 +2,7 @@
 // Start the built app with LEGACY_DETECTOR=0 python -m uvicorn backend.app.main:app.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import handCases from './fixtures/hand-validation.json' with { type: 'json' };
 const browser = await chromium.launch({ headless: true, args: [
   '--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--enable-unsafe-swiftshader',
 ] });
@@ -35,6 +36,7 @@ try {
     assert.equal(await page.locator('[role="alert"]').count(), 0, await page.locator('[role="alert"]').allTextContents());
     await page.waitForTimeout(5000);
     console.log(`${delegate} SYNTHETIC CAMERA:`, await page.getByLabel('Tracker diagnostics').textContent());
+    assert.equal(await page.locator('[role="alert"]').count(), 0, (await page.locator('[role="alert"]').allTextContents()).join(' '));
     assert.equal(await page.evaluate(() => window.trackingTest.workers), 2);
     assert.equal(await page.getByLabel('Collection protocol', { exact: true }).inputValue(), 'hp-v2-8fps-timed-1');
     assert.equal(await page.getByLabel('Inference FPS', { exact: true }).inputValue(), '8');
@@ -89,33 +91,102 @@ try {
   assert.equal(await page.evaluate(() => window.trackingTest.streams.some(s => s.getTracks().some(t => t.readyState === 'live'))), false);
   assert.deepEqual(errors, []);
   // Controlled detector replies isolate the UI acceptance contract from host compute speed.
-  // Camera frames/timestamps remain real synthetic-camera samples; no take is ever kept.
+  // Camera frames/timestamps remain real synthetic-camera samples; only one isolated synthetic take is kept to verify rejected landmarks are absent.
   const controlled = await browser.newPage();
   const savedRequests = [];
   controlled.on('request', r => { if (r.method() === 'POST' && r.url().includes('/api/takes')) savedRequests.push(r.url()); });
-  await controlled.addInitScript(() => {
+  await controlled.addInitScript(cases => {
+    window.validationScene = 'no visible hands';
     window.Worker = class {
       postMessage(message) {
         message.bitmap?.close();
-        queueMicrotask(() => this.onmessage?.({ data: message.type === 'init'
+        if (message.type === 'init') this.kind = message.kind;
+        const frame = cases.find(c => c.name === window.validationScene)?.frame;
+        const hand = this.kind === 'hand';
+        const result = hand ? {
+          landmarks: frame.hands.map(h => h.landmarks.map(([x, y, z]) => ({ x, y, z }))),
+          handedness: frame.hands.map(h => [{ categoryName: h.handedness, score: h.score }]),
+        } : { landmarks: frame.pose ? [frame.pose.map(([x, y, z, visibility]) => ({ x, y, z, visibility }))] : [] };
+        const delay = window.validationScene === 'delayed-result' ? 600 : 0;
+        setTimeout(() => this.onmessage?.({ data: message.type === 'init'
           ? { id: message.id, ready: true }
-          : { id: message.id, result: { landmarks: [], handedness: [] }, ms: 0 } }));
+          : { id: message.id, timestamp: window.validationScene === 'mismatched-result' ? message.timestamp + 1 : message.timestamp,
+            kind: this.kind, result, ms: delay } }), delay);
       }
       terminate() { this.onmessage = null; }
     };
+  }, [...handCases,
+    { name: 'delayed-result', frame: handCases.find(c => c.name === 'legitimate hand near nose and mouth').frame },
+    { name: 'mismatched-result', frame: handCases.find(c => c.name === 'legitimate hand near nose and mouth').frame }]);
+  // This isolated browser context may save only temporary synthetic test data locally.
+  await controlled.route('**/api/config', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), server_save: false } });
   });
   await controlled.goto(`${process.env.BROWSER_BASE_URL || 'http://127.0.0.1:8000'}/collect`);
   await controlled.getByPlaceholder('e.g. signer07').fill('controlled_ui_fixture');
   await controlled.getByRole('checkbox').check();
   await controlled.getByRole('button', { name: 'Start camera', exact: true }).click();
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
+  const handPixels = () => {
+    const canvas = document.querySelector('.stage canvas');
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if ((pixels[i] === 79 && pixels[i + 1] === 209 && pixels[i + 2] === 165)
+        || (pixels[i] === 255 && pixels[i + 1] === 179 && pixels[i + 2] === 71)) n++;
+    }
+    return n;
+  };
+  for (const scene of ['legitimate hand near nose and mouth', 'legitimate hand near chest', 'crossed hands keep anatomical sides',
+    'face false positive despite high handedness score', 'no visible hands', 'no pose wrists']) {
+    await controlled.evaluate(scene => { window.validationScene = scene; }, scene);
+    const example = handCases.find(c => c.name === scene);
+    const expected = example.sides;
+    await controlled.waitForFunction(({ count, rawCount, wrist }) => {
+      const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+      if (!raw) return false;
+      const d = JSON.parse(raw);
+      return d.acceptedCount === count && d.rawCount === rawCount
+        && (!wrist || JSON.stringify(d.raw?.[0]?.landmarks[0]) === JSON.stringify(wrist));
+    }, { count: expected.length, rawCount: example.frame.hands.length, wrist: example.frame.hands[0]?.landmarks[0] });
+    const text = await controlled.getByLabel('Accepted hand status', { exact: true }).textContent();
+    if (!expected.length) assert.match(text, /Hands: none/);
+    else for (const side of expected) assert.ok(text.includes(side === 'L' ? 'your left' : 'your right'));
+    assert.equal((await controlled.evaluate(handPixels)) > 0, expected.length > 0, scene);
+  }
+  // A synchronized but old result, or a wrong source timestamp, must not repopulate the overlay.
+  for (const scene of ['delayed-result', 'mismatched-result']) {
+    await controlled.evaluate(scene => { window.validationScene = scene; }, scene);
+    await controlled.waitForTimeout(900);
+    assert.match(await controlled.getByLabel('Accepted hand status', { exact: true }).textContent(), /Hands: none/);
+    assert.equal(await controlled.evaluate(handPixels), 0);
+  }
+  await controlled.evaluate(() => { window.validationScene = 'face false positive despite high handedness score'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    return raw && JSON.parse(raw).rawCount === 1 && JSON.parse(raw).acceptedCount === 0;
+  });
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
   const controlledKeep = controlled.getByRole('button', { name: 'Keep', exact: true });
   await controlledKeep.waitFor({ timeout: 15000 });
   assert.equal(await controlledKeep.isDisabled(), false);
   assert.match(await controlled.getByText(/frames over/).textContent(), /16 frames/);
   console.log('CONTROLLED UI ACCEPTANCE (mock detector):', await controlled.getByText(/frames over/).textContent());
-  await controlled.getByRole('button', { name: 'Discard', exact: true }).click();
+  await controlledKeep.click();
+  const saved = await controlled.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('signspeak', 1);
+    open.onsuccess = () => {
+      const get = open.result.transaction('takes').objectStore('takes').getAll();
+      get.onsuccess = () => { resolve(get.result); open.result.close(); };
+      get.onerror = () => reject(get.error);
+    };
+    open.onerror = () => reject(open.error);
+  }));
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].hand_validation, 'pose-wrist-v1');
+  assert.ok(saved[0].frames.every(f => f.hands.length === 0));
+  console.log('Rejected face landmarks excluded from the isolated temporary browser dataset.');
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).click();
   assert.deepEqual(savedRequests, []);
   await controlled.close();

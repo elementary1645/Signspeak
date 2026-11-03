@@ -6,6 +6,7 @@ energy remains per observed step (not velocity); models are consequently incompa
 import numpy as np
 from . import features as spatial
 from .capture import PROTOCOLS, validate_timing
+from .hand_validation import filter_hands
 
 SCHEMA = 'hp-v2-8fps'
 CAPTURE_PROTOCOL = 'hp-v2-8fps-timed-1'
@@ -14,15 +15,18 @@ WINDOW = PROTOCOLS[CAPTURE_PROTOCOL]['window']
 PERIOD_MS = 1000 / FPS
 FRAME_DIM = spatial.FRAME_DIM
 SUMMARY_DIM = spatial.SUMMARY_DIM
-frame_vector = spatial.frame_vector
 mirror = spatial.mirror
+
+
+def frame_vector(frame):
+    return spatial.frame_vector(filter_hands(frame))
 
 
 def latest_window(frames, vectors=None):
     """Latest 16 observed source samples. Reject gaps/rate violations, never fill holes."""
     selected = frames[-WINDOW:]
     validate_timing(selected, CAPTURE_PROTOCOL)
-    if vectors is not None:
+    if vectors is not None and all(len(filter_hands(f)['hands']) == len(f['hands']) for f in selected):
         return np.asarray(vectors[-WINDOW:], dtype=float)
     return np.asarray([frame_vector(f) for f in selected])
 

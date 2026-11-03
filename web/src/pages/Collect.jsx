@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { POLICY } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { APP_VERSION, FRAME_SCHEMA, TAKE_SCHEMA, frameQuality } from '../lib/lm.js';
@@ -97,7 +98,7 @@ export default function Collect() {
       none_prompt: pending.label === noneLabel ? pending.prompt?.id ?? null : null,
       app_version: APP_VERSION, recorded_at: new Date().toISOString(),
       capture_ms: Math.max(500, pending.durationMs),
-      consent: true, preview_mirrored: true, capture_protocol: pending.protocol,
+      consent: true, preview_mirrored: true, capture_protocol: pending.protocol, hand_validation: POLICY.policy,
       low_fps: pending.verdict.lowFps, measured_fps: Math.round(pending.verdict.fps * 10) / 10,
       frames: pending.frames,
     };

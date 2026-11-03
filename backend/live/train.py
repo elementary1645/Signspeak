@@ -35,6 +35,7 @@ from sklearn.svm import SVC
 from . import features, vocab
 from .model import BUNDLE_VERSION, DEFAULT_MODEL, decide
 from .takes import load_takes
+from .hand_validation import POLICY
 from .capture import accepted_protocols, for_schema, require_training_protocol
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -299,7 +300,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
     bundle = {
         'bundle_version': BUNDLE_VERSION, 'schema': temporal.SCHEMA, 'feature_dim': temporal.SUMMARY_DIM,
         'capture_protocol': capture_protocol, 'accepted_capture_protocols': accepted_protocols(feature_schema),
-        'temporal': timing,
+        'temporal': timing, 'hand_validation': POLICY if feature_schema == 'hp-v2-8fps' else None,
         'window': temporal.WINDOW, 'fps': temporal.FPS, 'model': model, 'labels': [str(c) for c in model.classes_],
         'algorithm': chosen, 'thresholds': thresholds,
         'vocab_fingerprint': vocab.selection_fingerprint(admitted, signs),

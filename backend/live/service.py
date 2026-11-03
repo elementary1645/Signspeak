@@ -19,6 +19,7 @@ from backend.app.recognition import Stabilizer
 from . import features, vocab
 from .model import LiveModel, model_path
 from .protocol import validate_frame
+from .hand_validation import filter_hands
 
 
 
@@ -119,6 +120,8 @@ class Session:
         started = time.perf_counter()
         self.touched = time.monotonic()
         frame = validate_frame(raw)
+        if getattr(getattr(self.service.model, 'features', None), 'SCHEMA', None) == 'hp-v2-8fps':
+            frame = filter_hands(frame)
         if self.frames and frame['t_ms'] <= self.frames[-1]['t_ms']:
             self.reset()  # camera restarted or clock jumped: start a fresh buffer
         self.frames.append(frame)

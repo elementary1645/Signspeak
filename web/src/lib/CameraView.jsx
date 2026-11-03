@@ -1,10 +1,21 @@
-import { displaySides } from './lm.js';
+import { useLayoutEffect } from 'react';
+import { drawOverlay, displaySides } from './lm.js';
 
 const SIDE = { L: 'your left', R: 'your right', '?': 'side unknown' };
 
 // Video + overlay share one CSS mirror so the preview reads like a mirror while the
 // detector keeps receiving unmirrored pixels.
 export default function CameraView({ cam, label = 'Camera preview with hand tracking overlay' }) {
+  // Draw in the same React commit as the label: neither can describe a different frame.
+  useLayoutEffect(() => {
+    const canvas = cam.canvasRef.current;
+    if (!canvas) return;
+    const frame = cam.lastFrame;
+    if (frame && (canvas.width !== frame.w || canvas.height !== frame.h)) { canvas.width = frame.w; canvas.height = frame.h; }
+    const start = performance.now();
+    drawOverlay(canvas.getContext('2d'), frame);
+    cam.onOverlayDraw?.(performance.now() - start);
+  }, [cam.lastFrame, cam.canvasRef, cam.onOverlayDraw]);
   const sides = cam.lastFrame ? displaySides(cam.lastFrame) : [];
   const { fps, delegate, detectMs } = cam.stats || {};
   return (
@@ -38,13 +49,19 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
           : <button className="btn primary" onClick={cam.start} disabled={cam.status === 'loading'}>
               {cam.status === 'loading' ? 'Starting…' : cam.status === 'error' ? 'Try camera again' : 'Start camera'}
             </button>}
-        {cam.lastFrame && (
-          <span className="muted">
-            Hands: {cam.lastFrame.hands.length ? sides.map(s => SIDE[s]).join(' + ') : 'none'}
-            {' · '}Upper body: {cam.lastFrame.pose ? 'visible' : 'not visible'}
+        {cam.status === 'running' && (
+          <span className="muted" aria-label="Accepted hand status">
+            Hands: {cam.lastFrame?.hands.length ? sides.map(s => SIDE[s]).join(' + ') : 'none'}
+            {' · '}Upper body: {cam.lastFrame?.pose ? 'visible' : 'not visible'}
           </span>
         )}
       </div>
+      {cam.status === 'running' && cam.diagnostics?.rawCount > cam.diagnostics?.acceptedCount && <p className="notice warn">Unverified hand candidates were rejected. Keep shoulders, elbows and wrists in view. Hands near the face are allowed when the arm/wrist agrees.</p>}
+      {cam.status === 'running' && cam.diagnostics && <details>
+        <summary>Local hand validation diagnostics</summary>
+        <p>Raw handedness score is not a hand-presence confidence. Rejected observations are not drawn or recorded.</p>
+        <pre aria-label="Hand validation diagnostics">{JSON.stringify(cam.diagnostics, null, 2)}</pre>
+      </details>}
       {cam.error && <p className="notice error" role="alert">{cam.error.message}</p>}
       {cam.status === 'running' && (
         <p className="debug" aria-label="Tracker diagnostics">
@@ -53,7 +70,7 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
           {cam.stats.handMs != null && <><br />Hands {cam.stats.handMs.toFixed(1)} ms · pose {cam.stats.poseMs.toFixed(1)} ms
             {' · '}processing {cam.stats.processMs.toFixed(1)} ms · overlay draw {cam.stats.renderMs.toFixed(1)} ms
             {' · '}total {cam.stats.totalMs.toFixed(1)} ms (p95 {cam.stats.totalMsP95.toFixed(1)}) · {cam.stats.samples} samples<br />
-            Input {cam.stats.resolution} · camera {cam.stats.cameraResolution} · parallel workers</>}
+            Input {cam.stats.resolution} · camera {cam.stats.cameraResolution} · parallel workers · stale results dropped: {cam.stats.staleResults ?? 0}</>}
         </p>
       )}
     </div>

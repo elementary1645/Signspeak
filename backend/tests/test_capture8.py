@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from backend.live import capture, features as F, features8 as F8, service, train, vocab
 from backend.live.model import LiveModel
+from backend.live.hand_validation import POLICY
 from backend.live.protocol import validate_frames
 from backend.live.takes import validate_take
 from backend.tests import live_fixtures as X
@@ -21,6 +22,9 @@ def take(fps=8, n=16):
     frames = X.gesture_frames('raise')[:n]
     for i, frame in enumerate(frames):
         frame['t_ms'] = round(1000 + i * 1000 / fps)
+        for hand in frame['hands']:
+            frame['pose'][16][:2] = hand['landmarks'][0][:2]
+            frame['pose'][14][:2] = [(a + b) / 2 for a, b in zip(frame['pose'][12][:2], hand['landmarks'][0][:2])]
     raw['frames'] = frames
     return raw
 
@@ -142,7 +146,7 @@ def test_lower_manifest_selects_16_frame_representation(trained, tmp_path, monke
     monkeypatch.setattr(dataset, 'VOCABULARY', trained['registry'])
     bundle = joblib.load(trained['model'])
     bundle.update(schema=F8.SCHEMA, capture_protocol=P, accepted_capture_protocols=[P],
-                  temporal=capture.PROTOCOLS[P], window=16, fps=8)
+                  temporal=capture.PROTOCOLS[P], window=16, fps=8, hand_validation=POLICY)
     path = tmp_path / 'synthetic8.joblib'
     joblib.dump(bundle, path)
     model = LiveModel(path, vocab.verified())
@@ -163,6 +167,9 @@ def test_synthetic_lower_training_emits_explicit_manifest_and_live_model(registr
         raw['frames'] = raw['frames'][:16]
         for i, f in enumerate(raw['frames']):
             f['t_ms'] = 1000 + i * 125
+            for hand in f['hands']:
+                f['pose'][16][:2] = hand['landmarks'][0][:2]
+                f['pose'][14][:2] = [(a + b) / 2 for a, b in zip(f['pose'][12][:2], hand['landmarks'][0][:2])]
     path = tmp_path / 'synthetic-only.jsonl'
     path.write_text('\n'.join(json.dumps(raw) for raw in raws))
     out = tmp_path / 'synthetic-only-model'
@@ -211,3 +218,15 @@ def test_lower_protocol_status_ws_http_and_collection_validation(registry, tmp_p
         assert not (tmp_path / 'takes').exists()
         assert client.post('/api/takes', json=raw).status_code == 200
         assert len(list((tmp_path / 'takes').glob('*.jsonl'))) == 1
+
+
+def test_lower_model_requires_explicit_hand_observation_policy(trained, tmp_path):
+    bundle = joblib.load(trained['model'])
+    bundle.update(schema=F8.SCHEMA, capture_protocol=P, accepted_capture_protocols=[P],
+                  temporal=capture.PROTOCOLS[P], window=16, fps=8)
+    for bad in [None, {}, dict(POLICY, maxWristDistanceShoulders=0.9)]:
+        bundle['hand_validation'] = bad
+        path = tmp_path / 'missing-or-incompatible-policy.joblib'
+        joblib.dump(bundle, path)
+        with pytest.raises(ValueError, match='observation validation policy'):
+            LiveModel(path, {})

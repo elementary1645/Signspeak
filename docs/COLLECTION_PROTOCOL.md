@@ -40,6 +40,18 @@ window; collector stops at 26). Do not mix its recordings with 8 FPS training da
 The summary counts only the selected protocol. Downloads retain all takes with their
 original protocol tags; old takes are never automatically upgraded.
 
+## Verify accepted hand tracking before each session
+
+With both hands outside view, check **Hands: none** and no hand-colored skeleton on your
+face. Raise each hand, then test face/chest signing and crossed hands. Keep shoulders,
+elbows and wrists visible: unsupported candidates are rejected by the `pose-wrist-v1`
+quality gate, not drawn or recorded. Expand **Local hand validation diagnostics** to
+inspect raw handedness scores and rejection reasons locally. This score is not hand
+presence confidence. A genuine hand near the face is allowed when its pose wrist agrees.
+Stop if hands are repeatedly rejected or a false face detection is accepted; do not
+collect training signs until the real-device checks in
+[PHASE3_HAND_VALIDATION.md](PHASE3_HAND_VALIDATION.md) pass.
+
 ## Signs (about 15 min)
 
 For each sign in the list:

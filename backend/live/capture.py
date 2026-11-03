@@ -2,6 +2,7 @@
 import json
 import math
 from pathlib import Path
+from .hand_validation import require_accepted_hands
 
 PROTOCOLS = json.loads((Path(__file__).resolve().parents[2] / 'web/src/lib/captureProtocols.json').read_text())
 LEGACY = 'legacy-untagged-hp-v1'
@@ -47,3 +48,5 @@ def require_training_protocol(takes, schema):
             raise ValueError(f'Capture protocol {protocol} is incompatible with feature schema {schema}; do not mix takes')
         if protocol != LEGACY:
             validate_timing(frames, protocol)
+        if schema == 'hp-v2-8fps':
+            require_accepted_hands(frames)

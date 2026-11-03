@@ -1,3 +1,4 @@
+import { poseSides } from './handValidation.js';
 // lm-v1 wire format: raw landmarks only, never pixels. The Python server owns all
 // feature engineering (backend/live/features.py), so nothing here affects the model.
 export const FRAME_SCHEMA = 'lm-v1';
@@ -26,16 +27,7 @@ export function toFrame(tMs, handResult, poseResult, w, h) {
 // Display-only side guess (subject left/right) by nearest pose wrist, mirroring the
 // server's rule: pose 15 = subject left wrist, 16 = subject right wrist.
 export function displaySides(frame) {
-  if (!frame.pose) return frame.hands.map(() => '?');
-  const wrists = [frame.pose[15], frame.pose[16]];
-  const d = (a, b) => Math.hypot((a[0] - b[0]) * frame.w, (a[1] - b[1]) * frame.h);
-  if (frame.hands.length === 2) {
-    const [a, b] = frame.hands.map(hand => hand.landmarks[0]);
-    const straight = d(a, wrists[0]) + d(b, wrists[1]);
-    const crossed = d(a, wrists[1]) + d(b, wrists[0]);
-    return straight <= crossed ? ['L', 'R'] : ['R', 'L'];
-  }
-  return frame.hands.map(hand => (d(hand.landmarks[0], wrists[0]) <= d(hand.landmarks[0], wrists[1]) ? 'L' : 'R'));
+  return poseSides(frame);
 }
 
 export function frameQuality(frames) {

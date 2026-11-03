@@ -1,3 +1,5 @@
+import { POLICY } from './handValidation.js';
+
 // One outstanding request per worker, bounded by the camera loop (no frame queue).
 export class TrackerWorker {
   constructor(kind, delegate, WorkerImpl = Worker) {
@@ -12,7 +14,11 @@ export class TrackerWorker {
       if (data.error) p.reject(new Error(data.error)); else p.resolve(data);
     };
     this.worker.onerror = e => this.close(new Error(e.message || 'Tracking worker failed'));
-    this.ready = this.request({ type: 'init', kind, delegate });
+    this.ready = this.request({ type: 'init', kind, delegate, thresholds: {
+      minHandDetectionConfidence: POLICY.minHandDetectionConfidence,
+      minHandPresenceConfidence: POLICY.minHandPresenceConfidence,
+      minTrackingConfidence: POLICY.minTrackingConfidence,
+    } });
   }
   request(data, transfer = []) {
     return new Promise((resolve, reject) => {
@@ -84,4 +90,33 @@ export class InferenceCadence {
     this.next = this.maxSourceFps == null ? now + this.period
       : Math.max(Number.isFinite(this.next) ? this.next + this.period : now + this.period, now);
   }
+}
+
+
+// A synchronized result can still be too old to describe the live preview.
+export function validResultPair(hand, pose, timestamp, ageMs, maxAgeMs = POLICY.maxResultAgeMs) {
+  return hand.timestamp === timestamp && pose.timestamp === timestamp
+    && hand.kind === 'hand' && pose.kind === 'pose' && ageMs >= 0 && ageMs <= maxAgeMs;
+}
+
+export class FreshFrame {
+  constructor(publish, { now = () => performance.now(), setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = id => clearTimeout(id),
+    maxAgeMs = POLICY.maxResultAgeMs } = {}) {
+    Object.assign(this, { publish, now, setTimer, clearTimer, maxAgeMs });
+    this.last = -Infinity;
+    this.closed = false;
+  }
+  accept(frame, capturedAt) {
+    const remaining = this.maxAgeMs - (this.now() - capturedAt);
+    if (this.closed || frame.t_ms <= this.last || remaining <= 0) return false;
+    this.clearTimer(this.timer);
+    this.last = frame.t_ms;
+    this.publish(frame);
+    const publishedTimestamp = frame.t_ms;
+    this.timer = this.setTimer(() => {
+      if (!this.closed && this.last === publishedTimestamp) this.publish(null);
+    }, remaining);
+    return true;
+  }
+  close() { this.closed = true; this.clearTimer(this.timer); }
 }

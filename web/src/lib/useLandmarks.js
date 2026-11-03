@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { drawOverlay, toFrame } from './lm.js';
+import { toFrame } from './lm.js';
+import { POLICY, validateHands } from './handValidation.js';
 import { FpsMeter } from './capture.js';
-import { FrameClock, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
+import { FrameClock, FreshFrame, validResultPair, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
-export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null }) {
+export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const session = useRef(null);
@@ -14,6 +15,9 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
   const [error, setError] = useState(null);
   const [lastFrame, setLastFrame] = useState(null);
   const [stats, setStats] = useState({});
+  const [diagnostics, setDiagnostics] = useState(null);
+  const overlayMs = useRef(0);
+  const onOverlayDraw = useCallback(ms => { overlayMs.current = ms; }, []);
 
   const stop = useCallback(() => {
     const s = session.current;
@@ -23,10 +27,10 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
       if (s.videoCallback != null) videoRef.current?.cancelVideoFrameCallback?.(s.videoCallback);
       s.stream?.getTracks().forEach(t => t.stop());
       s.workers?.forEach(w => w.close());
+      s.fresh?.close();
     }
     if (videoRef.current) videoRef.current.srcObject = null;
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx) drawOverlay(ctx, null);
+    setDiagnostics(null);
     setLastFrame(null);
     setStats({});
     setStatus('idle');
@@ -69,6 +73,11 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
       const timings = new TimingWindow();
       const clock = new FrameClock();
       const cadence = new InferenceCadence(effectiveFps, maxSourceFps);
+      s.fresh = new FreshFrame(frame => {
+        setLastFrame(frame);
+        if (!frame) setDiagnostics({ stale: true, reason: 'No fresh synchronized observation; overlay cleared' });
+      });
+      let staleResults = 0;
       let lastStats = -Infinity;
       let busy = false;
       const schedule = () => {
@@ -94,27 +103,32 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
           const bitmaps = await Promise.all([createImageBitmap(input), createImageBitmap(input)]);
           if (!active()) { bitmaps.forEach(b => b.close()); return; }
           const [hand, pose] = await Promise.all(s.workers.map((w, i) =>
-            w.request({ type: 'frame', bitmap: bitmaps[i], timestamp }, [bitmaps[i]])));
+            w.request({ type: 'frame', bitmap: bitmaps[i], timestamp, kind: i === 0 ? 'hand' : 'pose' }, [bitmaps[i]])));
           if (!active()) return;
           const detectMs = performance.now() - now;
           const processingStart = performance.now();
-          const frame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
-          onFrameRef.current?.(frame);
-          const processMs = performance.now() - processingStart;
-          const renderStart = performance.now();
-          const canvas = canvasRef.current;
-          if (canvas) {
-            if (canvas.width !== frame.w || canvas.height !== frame.h) { canvas.width = frame.w; canvas.height = frame.h; }
-            drawOverlay(canvas.getContext('2d'), frame);
+          let processMs = 0;
+          if (validResultPair(hand, pose, timestamp, performance.now() - now)) {
+            const rawFrame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
+            const accepted = validateHands(rawFrame, handValidation);
+            setDiagnostics(accepted.diagnostics);
+            if (s.fresh.accept(accepted.frame, now)) {
+              // Every consumer receives this exact accepted observation; no rejected raw data escapes.
+              onFrameRef.current?.(accepted.frame);
+              meter.add(accepted.frame.t_ms);
+            }
+            processMs = performance.now() - processingStart;
+          } else {
+            staleResults++;
+            setLastFrame(null);
+            setDiagnostics({ stale: true, reason: 'Expired or mismatched worker result; not recorded' });
           }
-          const renderMs = performance.now() - renderStart;
-          meter.add(frame.t_ms);
+          const renderMs = overlayMs.current;
           timings.add({ handMs: hand.ms, poseMs: pose.ms, detectMs, processMs, renderMs, totalMs: performance.now() - now });
-          // React diagnostics/hand status need only 2 updates/s; collector still receives every frame.
+          // Timing diagnostics need only 2 updates/s; overlay/status and consumers receive every fresh frame.
           if (now - lastStats >= 500) {
             lastStats = now;
-            setLastFrame(frame);
-            setStats({ ...timings.summary(), fps: meter.fps(), delegate: settings.delegate,
+            setStats({ ...timings.summary(), fps: meter.fps(), staleResults, delegate: settings.delegate,
               resolution: `${input.width}×${input.height}`, cameraResolution: `${video.videoWidth}×${video.videoHeight}` });
           }
         } catch (err) { fail(err); }
@@ -123,12 +137,14 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
       setStatus('running');
       schedule();
     } catch (err) { fail(err); }
-  }, [settings, requiredFps, maxSourceFps, stop]);
+  }, [settings, requiredFps, maxSourceFps, handValidation, stop]);
 
   useEffect(() => stop, [stop]);
   useEffect(() => {
+    const visibility = () => { if (document.hidden) stop(); };
     window.addEventListener('pagehide', stop);
-    return () => window.removeEventListener('pagehide', stop);
+    document.addEventListener('visibilitychange', visibility);
+    return () => { window.removeEventListener('pagehide', stop); document.removeEventListener('visibilitychange', visibility); };
   }, [stop]);
-  return { videoRef, canvasRef, status, error, lastFrame, stats, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
+  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
 }
