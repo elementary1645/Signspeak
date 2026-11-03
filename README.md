@@ -1,195 +1,137 @@
-# SignSpeak Local
+# SignSpeak
 
 Human Impact track · November 2–4, 2026 hackathon · Authentic Indian Sign Language (ISL).
 
-A CPU-compatible foundation for recognizing a small, human-verified static ISL
-vocabulary. Browser camera frames go to Python MediaPipe; validated landmarks can be
-collected, audited, used to train scikit-learn classifiers, and scored in live recognition.
-The intended later product adds text and speech in English, Kannada, Hindi and possibly
-Tamil. This implementation does not claim full ISL translation or multilingual output.
+SignSpeak recognises a small, **human-verified** set of ISL signs from a webcam and shows
+their meaning in English, Kannada, Hindi or Tamil. The browser extracts hand and
+upper-body landmarks with MediaPipe; only landmarks (never images) go to a Python server,
+which computes features, trains CPU scikit-learn models and runs live recognition.
 
-**Phase 2 is partially complete.** Recognition infrastructure is implemented, but zero
-signs are human-approved, no genuine labelled dataset exists here, and no ISL classifier
-or measured recognition accuracy is available. The user confirmed Phase 1 laptop camera
-capture/overlays work; the changed Phase 2 interface still needs laptop acceptance.
+**Status (Phase 3).** Collection, training and live recognition are built and tested,
+and the browser pipeline has been checked in headless Chrome with a fake camera.
+**No sign is verified yet, no real data has been collected and no model is trained.**
+Until then `/translate` says "Model not trained yet" and never guesses.
+See [the human steps](#what-needs-a-human).
 
-## Installation and browser camera
+```
+browser: camera → MediaPipe Hand (2) + Pose lite, ~15 fps → lm-v1 landmarks
+  /collect  → 2 s takes → "Download my data" (.jsonl) → scripts/merge_takes.py
+  /translate → WebSocket /ws/recognize (or POST /api/predict)
+server (Python): hp-v1 features → sklearn model → NONE/threshold rejection → smoothing → state
+```
 
-Tested on Linux CPU, Python 3.12.3 and MediaPipe 0.10.32. Python 3.11 may work but has not
-been tested; Python 3.14 is not the configured environment. On Ubuntu 24.04, install
-`python3.12-venv libgl1 libglib2.0-0t64` if absent. No CUDA, API keys or inference cloud
-service is required. Exact tested dependency versions are in `requirements.lock.txt`.
+## Run it
 
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
+Needs Python 3.12 and Node 20.19+ (tested: Windows 11 with Python 3.12.10 and Node 24.14;
+Phase 1/2 on Linux with Python 3.12.3). CPU only. No API keys.
+
+**Windows (PowerShell)**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.lock.txt
+python scripts/download_model.py          # hand + pose .task models, SHA256-checked
+cd web; npm install; npm run build; cd ..
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+```
+
+**Linux / macOS**
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.lock.txt      # Ubuntu 24.04 may need: libgl1 libglib2.0-0t64 python3.12-venv
 python scripts/download_model.py
-uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+(cd web && npm install && npm run build)
+python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Keep forwarded Codespaces port **8000 Private**. Open its HTTPS URL on your laptop,
-allow camera permission and click Enable camera. Codespaces is remote: OpenCV
-`VideoCapture(0)` does not access your laptop webcam. The browser uses `getUserMedia`,
-sends sampled JPEGs to the same-origin Python API and draws returned one/two-hand
-landmarks. Images are processed in memory and never permanently stored. No desktop
-OpenCV window is used. The minimal browser lab uses plain JavaScript; the final
-React + Vite product interface remains deferred. FastAPI is the Python backend.
+Open http://127.0.0.1:8000/collect or `/translate`. The camera needs `localhost` or HTTPS.
+FastAPI serves the built app, API, WebSocket and models from one origin, with no
+localhost assumptions (ready for one Docker image on Hugging Face Spaces, port 7860).
 
-`/health` separates API liveness, detector readiness, collection configuration and
-classifier readiness. An absent classifier does not disable landmark preview.
+**Frontend dev with hot reload:** keep the backend running on :8000, then
+`cd web && npm run dev` and open http://localhost:5173 (Vite proxies `/api`, `/ws`,
+`/ready`, `/models`).
 
-## Verify authentic signs individually
+**Optional server-side save** of takes (otherwise nothing is written by the server):
+`$env:ENABLE_COLLECTION="1"` (PowerShell) or `ENABLE_COLLECTION=1` (bash) before
+starting uvicorn. Takes go to `data/raw/takes/` (git-ignored).
 
-Read [ISL vocabulary review](docs/isl_vocabulary.md). All 12 candidate meanings remain
-UNVERIFIED. Official dictionary name matches alone cannot unlock collection.
+## The workflow
 
-Use the lab's **Human vocabulary review** panel to inspect and document one exact
-ISLRTC reference at a time: hand count, motion, facial/body/relative-hand cues and
-feature suitability. A human must personally watch and confirm each sign. Export the
-individual decision and move it into the Codespace, then apply it locally:
+1. **Verify signs:** [docs/HOW_TO_VERIFY_A_SIGN.md](docs/HOW_TO_VERIFY_A_SIGN.md), about 10 minutes per sign.
+   `python -m scripts.verify_sign HELLO --link <exact official URL>` makes the sign
+   recordable; `python -m scripts.verify_sign HELLO` records the human review.
+2. **Collect:** each signer follows [docs/COLLECTION_PROTOCOL.md](docs/COLLECTION_PROTOCOL.md)
+   on `/collect` (about 25 minutes: 8 takes per sign plus 16 guided NONE takes) and downloads a `.jsonl`.
+3. **Merge:** `python -m scripts.merge_takes <files or folders>` writes `data/processed/takes.jsonl`.
+4. **Train:** `python -m backend.live.train`. It refuses unverified labels (NONE excepted),
+   compares RF/ExtraTrees/LogReg/SVM by grouped macro-F1 (leave-one-signer-out with 3 or more
+   signers), tunes rejection thresholds on validation folds, and writes
+   `backend/models/live/{model.joblib,metrics.json}` and the [model card](docs/MODEL_CARD.md).
+   Options: `--drop-unverified`, `--mirror-augment`, `--models svm_rbf,random_forest`.
+5. **Restart the server.** `/ready` returns 200 only when a compatible model is loaded;
+   `/translate` shows live states.
 
-```bash
-python -m scripts.review_sign data/processed/reviews/HELLO-review.json --confirm-human-review
-```
-
-Use that command only on your actual completed human review. The filename above is
-illustrative; no HELLO sign is approved by this README. Restart and reload after changes.
-Target 6–8 suitable signs, fewer if needed. Dynamic signs or signs requiring cues missing
-from `hands-v1` cannot be admitted. Never substitute ASL and call it ISL.
-
-## Collect and audit genuine data
-
-Enable persistence explicitly on the server:
-
-```bash
-ENABLE_COLLECTION=1 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-```
-
-Select an admitted sign, enter voluntary signer/session pseudonyms, consent and start
-a recording. Set sampling 0.5–5 Hz and a saved-sample goal (default 30). Pause/resume
-keeps the same take; starting another recording creates a new take ID. The page shows
-sample progress, active time, valid landmark frames, detected hand count and saved totals.
-Near-identical frames and excessive sampling are suppressed across takes during a server
-run. Wrong expected hand count, unreliable handedness and invalid records cannot be saved.
-
-No raw images/videos are saved. JSONL feature data defaults to
-`data/processed/samples.jsonl` (Git-ignored); override with `DATASET_PATH`. Use consistent
-pseudonyms across sessions and collect balanced independent takes, multiple sessions
-and multiple signers. Do not enter real names or contact details. Consent and private
-access remain necessary for pseudonymous hand-movement data. Keep one server worker;
-this prototype has no production authentication or multiuser storage service.
-
-Use the page's quality button or CLI before training:
-
-```bash
-python -m backend.training.audit --data data/processed/samples.jsonl
-```
-
-The audit reports sample/class/group counts, duplicate vectors, imbalance and split
-readiness. It rejects malformed records, duplicate sample/frame IDs and takes reused
-across signers/sessions/classes. Structural readiness is not proof of adequate data or
-correct signing. See [dataset schema](docs/data_schema.md) for feature masks and mirroring.
-
-## Train real classifiers and evaluate
-
-Stop collection before auditing and training. Only after human review and genuine collection:
-
-```bash
-python -m backend.training.train --confirm-real-data
-# Optional RBF SVM comparison, with training-only group calibration:
-python -m backend.training.train --algorithm svm --output backend/models/svm --confirm-real-data
-# Weaker evaluation of within-signer session generalization:
-python -m backend.training.train --group-by session --confirm-real-data
-```
-
-The flag attests real collected data; it cannot detect fabricated samples. Default
-baseline: 200-tree balanced Random Forest, seed 42, 25% signer-group holdout. Every class
-must appear in train and test. SVM uses group-aware inner calibration; scalers and
-calibrators fit training folds only. Insufficient class/group coverage blocks training.
-Reserve final test signers before model/threshold selection.
-
-Outputs under `backend/models/baseline`: `baseline.joblib`, `labels.json`, `metadata.json`
-and `metrics.json`. They include class order, schema/dimension, library version, dataset
-and vocabulary hashes, actual sample/group counts, accuracy, macro-F1, per-class
-precision/recall/F1 and confusion matrix. These are closed-set frame metrics, not a
-measurement of unknown rejection or stable events. No production metrics have yet
-been generated. Test fixtures are software checks, never evidence of ISL accuracy.
-
-## Live recognition
-
-After training, restart with a locally trusted compatible model:
-
-```bash
-MODEL_PATH=backend/models/baseline/baseline.joblib uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-```
-
-Reload the page, enable camera and select Live recognition. Saving turns off. The lab
-shows the predicted label, model score, smoothed score, stable-sign events and measured
-classifier/server/round-trip latency. No trained model means no predictions.
-
-Defaults: score >= 0.80, top-two margin >= 0.15, matching hand count; then three consecutive
-accepted frames and >= 0.5 s dwell for stability. No-hand/unknown/error/change or > 1.5 s
-gap resets stability. Continuous holding emits once; repetition requires release/change
-and a 2 s per-label cooldown. Use 2–5 Hz for live recognition. Model/vocabulary mismatch
-fails closed while landmarks remain available. Never load untrusted joblib files.
-
-Scores and rejection thresholds do **not** establish open-set reliability: unseen poses
-may be confidently accepted. RF votes are uncalibrated; SVM probabilities use training
-group calibration. Test unseen signs separately before claiming useful unknown rejection.
-See [Phase 2 architecture and acceptance](docs/phase2.md) for the full inference contract.
+Live states: `INITIALIZING`, `READY`, `DETECTING`, `RECOGNIZING`, `RECOGNIZED`, `UNKNOWN`,
+`NO_HAND`, `ERROR`. The reserved `NONE` class is trained but never displayed: if NONE
+wins, or confidence/margin is below the tuned thresholds, the state is `UNKNOWN`.
+Schemas and features: [docs/data_schema.md](docs/data_schema.md).
 
 ## Test
 
 ```bash
-python -m pytest backend/tests -q
-node frontend/tests/collector.test.cjs
-node --check frontend/collector.js
-node --check frontend/review.js
-python -m scripts.smoke_test
+python -m pytest backend/tests -q        # Phase 1-3 Python tests
+cd web && npm test                       # browser logic (frames, sides, reconnect/fallback)
+node frontend/tests/collector.test.cjs   # legacy lab
+python -m scripts.smoke_test             # real MediaPipe CPU model + legacy routes
 ```
 
-See [validation record](docs/validation.md) for executed checks, results and remaining
-manual acceptance. No new runtime framework was installed for Phase 2.
+All Phase 3 test data is **synthetic geometry** labelled `SYNTH_*`. It is never ISL data,
+and its metrics say nothing about recognition quality.
 
-## Layout, limits and attribution
+## What needs a human
 
-- `backend/app`: FastAPI, official Tasks detector, shared features, reviewed vocabulary,
-  dataset validation, model compatibility and temporal inference.
-- `backend/training`: dataset audit and deterministic grouped RF/SVM training.
-- `backend/models`: ignored model assets/artifacts and committed asset manifest.
-- `backend/tests`, `frontend/tests`: Python regression/inference and browser-logic checks.
-- `frontend`: lightweight camera collector, individual review form and recognition display.
-- `data/raw`, `data/processed`, `data/metadata`: ignored raw/features, review queue/registry.
-- `docs`, `scripts`: provenance, schema, architecture, human review import and model tools.
+1. Verify signs (official link, watch, answer). AI cannot do this, and nothing is auto-approved.
+2. Record takes: at least 3 consenting signers, ideally including Deaf ISL signers.
+3. Native-speaker check of `data/metadata/translations.json` (kn/hi/ta were drafted by AI).
+4. Real-camera checks: the overlay labels "your left"/"your right" correctly, and recognition behaves well with people who were not in training.
 
-`hands-v1` loses absolute body position and relative hand placement and contains no motion
-or facial grammar. It cannot recognize arbitrary dynamic signs. Missing/occluded hands
-and handedness errors affect performance. No emergency/medical reliability, full ISL
-translation, speech synthesis or multilingual output is claimed.
+## Layout
 
-Primary sign authority: [ISLRTC](https://islrtc.nic.in/isl-dictionary/). Exact reviewed
-references will be attributed in the vocabulary registry; none is approved yet. No
-external sign dataset or dictionary video is bundled or claimed as project-owned.
+- `web/`: Vite + React app (`/collect`, `/translate`), browser MediaPipe, shared landmark hook.
+- `backend/live/`: Phase 3 protocol, hp-v1 features, vocabulary gate v2, takes, training, model bundle, live service, single-origin serving.
+- `backend/app/`, `backend/training/`, `backend/sequence/`, `frontend/`: Phase 1/2 hands-v1 lab and Holistic experiments (kept working, not extended).
+- `data/metadata/`: `vocabulary.json` (one registry; hp-v1 entries carry `"pipeline": "hp-v1"`), `translations.json`.
+- `scripts/`: `download_model.py`, `verify_sign.py`, `merge_takes.py`, legacy tools.
 
-Google's [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
-is a general-purpose palm/hand landmark bundle, **not Gesture Recognizer**. Version 1
-float16 URL, SHA256 and retrieval date are in [manifest](backend/models/manifest.json).
-The binary is downloaded separately and ignored by Git. MediaPipe is Apache-2.0;
-consult Google's linked model card and applicable terms. FastAPI, scikit-learn, NumPy,
-Pillow and other dependencies retain their respective licenses.
+## Phase 1/2 legacy lab
 
-AI assistance disclosure: **OpenAI Codex** assisted with original project implementation,
-tests and documentation during the hackathon. No complete existing sign-language project
-was copied. Human sign verification and real evaluation cannot be supplied by generated
-fixtures or assistant declarations.
+The hands-v1 still-sign lab still works at `/lab` (and at `/` when `web/dist` is not built),
+with its `/frames` endpoint, `scripts.review_sign`, `backend.training.*` and the Holistic
+experiments. See [docs/phase2.md](docs/phase2.md), [phase2c](docs/phase2c.md),
+[phase2d](docs/phase2d.md) and [validation](docs/validation.md). The hands-v1 gate ignores
+hp-v1 registry entries and vice versa.
 
-## Phase 2C compatibility investigation
+## Limits and attribution
 
-The [sequence infrastructure assessment](docs/phase2c.md) documents the 41-label ZIP,
-explicit Holistic adapter contract, review-gated CPU research baseline and remaining
-webcam/public-deployment gates. No archive-based model is trained or enabled.
+hp-v1 has no face landmarks, so signs that need facial grammar or mouthing are rejected
+at verification. Small vocabulary, few signers: any unfamiliar movement can still be
+misread. Not for medical or emergency use. No speech output yet.
 
-The [Phase 2D experiment](docs/phase2d.md) runs a pinned legacy Holistic CPU extractor
-in isolation and records real schema/latency checks. Human approvals remain at zero;
-no dataset-trained classifier or public webcam recognition is enabled.
+Sign authority: [ISLRTC](https://islrtc.nic.in/isl-dictionary/). Dictionary videos are linked,
+not copied. No external sign dataset is bundled or used.
+
+Google [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
+Hand Landmarker and [Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
+lite (`@mediapipe/tasks-vision` 0.10.35, Apache-2.0). Model URLs, SHA256 and retrieval
+dates are in [backend/models/manifest.json](backend/models/manifest.json). The binaries are
+downloaded separately, git-ignored and self-hosted at runtime. FastAPI, scikit-learn,
+React, Vite and other dependencies keep their own licenses.
+
+**AI assistance disclosure.** OpenAI **ChatGPT/Codex** assisted with Phases 1–2.
+**Claude Code (Anthropic)** assisted with Phase 3: the web app, hp-v1 pipeline, training,
+live service, tests and documentation. The kn/hi/ta translation drafts are AI-generated
+and flagged for native-speaker review. No complete existing sign-language project was
+copied. Sign verification, real data and real evaluation cannot come from an AI assistant.
