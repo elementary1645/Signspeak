@@ -14,7 +14,7 @@ from .dataset import ROOT, Record, vocabulary
 from .detector import Detector, THRESHOLD, decode_image
 from .features import normalize, SCHEMA
 from .recognition import Recognizer, Stabilizer
-from backend.live import api as live_api, web
+from backend.live import api as live_api, service as live_service, web
 
 
 @asynccontextmanager
@@ -26,6 +26,7 @@ async def lifespan(app):
     app.state.recognition_lock = threading.Lock()
     app.state.streams = {}
     app.state.recognizer = None
+    app.state.live = live_service.LiveService().load()  # hp-v1 model; never a guess without it
     app.state.model_error = 'No trained classifier. Verify signs, collect real data, train and restart.'
     model_path = Path(os.getenv('MODEL_PATH', str(ROOT / 'backend/models/baseline/baseline.joblib')))
     if model_path.exists():
@@ -46,6 +47,7 @@ async def lifespan(app):
 app = FastAPI(title='SignSpeak Local — ISL collection and recognition', lifespan=lifespan)
 app.include_router(web.router)
 app.include_router(live_api.router)
+app.include_router(live_service.router)
 
 
 class Frame(BaseModel):
