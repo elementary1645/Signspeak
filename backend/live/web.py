@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / 'web/dist'
 MODELS = ROOT / 'backend/models'
-SPA_ROUTES = ('/translate', '/collect')
+SPA_ROUTES = ('/translate', '/collect', '/learn', '/how-it-works', '/about')
 
 router = APIRouter()
 
@@ -48,6 +48,16 @@ def asset(path: str):
     return _dist_file('assets', path)
 
 
+@router.get('/audio/{path:path}', include_in_schema=False)
+def audio(path: str):
+    return _dist_file('audio', path)
+
+
+@router.get('/favicon.svg', include_in_schema=False)
+def favicon():
+    return _dist_file('.', 'favicon.svg')
+
+
 @router.get('/mediapipe/{path:path}', include_in_schema=False)
 def mediapipe_runtime(path: str):
     return _dist_file('mediapipe', path)
@@ -58,5 +68,5 @@ def _dist_file(folder, path):
     target = (base / path).resolve()
     if not target.is_relative_to(base) or not target.is_file():
         raise HTTPException(404, 'Not found')
-    media = 'application/wasm' if target.suffix == '.wasm' else None
+    media = {'.wasm': 'application/wasm', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml'}.get(target.suffix)
     return FileResponse(target, media_type=media)

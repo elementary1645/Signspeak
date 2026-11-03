@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from . import vocab
+from .model import model_path
 from .takes import NONE_PROMPTS, validate_take
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +47,62 @@ def vocabulary():
 @router.get('/translations')
 def get_translations():
     return translations()
+
+
+LEARN_FIELDS = ('label', 'reference_url', 'reference_id', 'hand_count', 'motion_required',
+                'relative_hand_position_required', 'body_cues_required', 'notes', 'reviewed_on')
+
+
+@router.get('/signs')
+def signs(request: Request):
+    """Learn ISL: details only for verified signs; unverified candidates are listed by name."""
+    try:
+        entries = vocab.live_entries()
+        admitted = vocab.verified(entries)
+    except ValueError as exc:
+        raise HTTPException(503, f'Vocabulary registry invalid: {exc}') from exc
+    words = translations()
+    status = request.app.state.live.status()
+    recognised = set(status['model']['labels']) if status['ready'] else set()
+    verified = [dict({k: admitted[label].get(k) for k in LEARN_FIELDS}, translations=words.get(label),
+                     recognised_by_model=label in recognised)
+                for label in sorted(admitted)]
+    pending = [{'label': e['label'], 'has_reference': vocab.has_exact_reference(e)}
+               for e in entries if e['label'] not in admitted]
+    return {'verified': verified, 'not_supported_yet': pending, 'model_ready': status['ready'],
+            'recognised_count': len(recognised)}
+
+
+@router.get('/model')
+def model_report(request: Request):
+    """Numbers shown on About & Model come only from the trained bundle's metrics.json."""
+    path = model_path().parent / 'metrics.json'
+    status = request.app.state.live.status()
+    if not path.exists():
+        return {'trained': False, 'loaded': status['ready'], 'detail': 'No model trained yet'}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        bundle, metrics = data['bundle'], data['metrics']
+        open_set = metrics['open_set_with_rejection']
+        return {
+            'trained': True, 'loaded': status['ready'], 'load_detail': status['detail'],
+            'model_type': bundle['algorithm'], 'labels': bundle['labels'],
+            'trained_at': bundle['trained_at'], 'sklearn_version': bundle['sklearn_version'],
+            'counts': bundle['counts'], 'vocabulary_version': bundle['vocab_fingerprint'][:12],
+            'dataset_sha256': bundle['dataset_sha256'], 'thresholds': bundle['thresholds'],
+            'evaluation': {'scheme': metrics['scheme'],
+                           'unseen_signers_measured': metrics['generalisation_to_unseen_signers_measured'],
+                           'warning': metrics['warning']},
+            'model_comparison_closed_set_macro_f1': metrics['model_comparison_closed_set_macro_f1'],
+            'macro_f1_open_set': open_set['macro_f1'], 'macro_f1_closed_set': metrics['closed_set']['macro_f1'],
+            'per_class': open_set['per_class'], 'confusion_matrix': open_set['confusion_matrix'],
+            'none_false_accept_rate': metrics['none_false_accept_rate'],
+            'sign_rejection_rate': metrics['sign_rejection_rate'],
+            'held_out_sign_rejection': metrics['held_out_sign_rejection'],
+            'evaluated_windows': metrics['evaluated_windows'],
+        }
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(500, f'metrics.json is unreadable: {type(exc).__name__}') from exc
 
 
 @router.post('/takes')

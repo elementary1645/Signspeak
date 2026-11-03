@@ -2,46 +2,54 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
+import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../lib/api.js';
+import { InfoIcon } from '../lib/icons.jsx';
+import { viewState, STATE_TEXT } from '../lib/translateState.js';
 
-const LANGUAGES = [['en', 'English'], ['kn', 'ಕನ್ನಡ'], ['hi', 'हिन्दी'], ['ta', 'தமிழ்']];
-const STATE_TEXT = {
-  INITIALIZING: 'Starting…', READY: 'Ready', DETECTING: 'Hands detected…', RECOGNIZING: 'Recognizing…',
-  RECOGNIZED: 'Recognized', UNKNOWN: 'Not a known sign', NO_HAND: 'No hands visible', ERROR: 'Error',
-};
 const TRANSPORT_TEXT = {
-  idle: 'Not connected', connecting: 'Connecting…', ws: 'Connected (WebSocket)',
-  reconnecting: 'Reconnecting', http: 'Connected (HTTP fallback)',
+  idle: 'Not connected', connecting: 'Connecting…', ws: 'Live connection',
+  reconnecting: 'Reconnecting', http: 'Live (HTTP fallback)',
 };
 
-function readLanguage() {
-  try { return localStorage.getItem('signspeak.lang') || 'en'; } catch { return 'en'; }
-}
-
-export default function Translate() {
+export default function Translate({ link }) {
   const [status, setStatus] = useState(null);
-  const [statusError, setStatusError] = useState(null);
+  const [backendDown, setBackendDown] = useState(false);
   const [translations, setTranslations] = useState({});
   const [lang, setLang] = useState(readLanguage);
   const [transport, setTransport] = useState({ mode: 'idle' });
   const [result, setResult] = useState(null);
   const [rtt, setRtt] = useState(null);
   const [history, setHistory] = useState([]);
+  const [announcement, setAnnouncement] = useState('');
   const [lastError, setLastError] = useState(null);
   const clientRef = useRef(null);
+  const langRef = useRef(lang);
+  const translationsRef = useRef(translations);
+  langRef.current = lang;
+  translationsRef.current = translations;
 
   useEffect(() => {
-    fetch('/api/status').then(r => r.json()).then(setStatus).catch(err => setStatusError(err.message));
-    fetch('/api/translations').then(r => r.json()).then(setTranslations).catch(() => {});
+    getJSON('/api/status').then(s => { setStatus(s); setBackendDown(false); }).catch(() => setBackendDown(true));
+    getJSON('/api/translations').then(setTranslations).catch(() => {});
   }, []);
 
   const onMessage = useCallback(message => {
-    if (message.type === 'hello') { setStatus(message); return; }
-    if (message.type === 'error') { setLastError(`${message.code}: ${message.detail || ''}`); return; }
+    if (message.type === 'hello') { setStatus(message); setBackendDown(false); return; }
+    if (message.type === 'error') {
+      setLastError(message.code === 'NETWORK' ? 'The SignSpeak server is not responding.' : `${message.code}: ${message.detail || ''}`);
+      if (message.code === 'NETWORK') setBackendDown(true);
+      return;
+    }
     if (message.type !== 'prediction') return;
     setLastError(null);
+    setBackendDown(false);
     setResult(message);
     if (typeof message.t_ms === 'number') setRtt(performance.now() - message.t_ms);
-    if (message.event) setHistory(h => [{ label: message.event, at: new Date(), confidence: message.confidence }, ...h].slice(0, 10));
+    if (message.event) {
+      const meaning = meaningOf(translationsRef.current, message.event, langRef.current);
+      setAnnouncement(`Recognised: ${meaning}`);
+      setHistory(h => [{ label: message.event, at: new Date(), confidence: message.confidence }, ...h].slice(0, 8));
+    }
   }, []);
 
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
@@ -55,75 +63,86 @@ export default function Translate() {
     return () => { client.stop(); clientRef.current = null; setResult(null); setRtt(null); };
   }, [cam.status, onMessage]);
 
-  function chooseLanguage(value) {
-    setLang(value);
-    try { localStorage.setItem('signspeak.lang', value); } catch { /* per-viewer convenience only */ }
-  }
+  function chooseLanguage(code) { setLang(code); saveLanguage(code); }
 
-  const modelReady = result ? result.model_ready : status?.ready;
-  const notTrained = (result?.code || status?.code) === 'MODEL_NOT_TRAINED';
-  const state = cam.status === 'loading' || transport.mode === 'connecting' ? 'INITIALIZING'
-    : cam.status !== 'running' ? (modelReady ? 'READY' : 'ERROR') : result?.state || 'INITIALIZING';
-  const shown = state === 'RECOGNIZED' && result?.label ? result.label : null;
-  const meaning = label => translations[label]?.[lang] || translations[label]?.en || label;
+  const view = viewState({ camStatus: cam.status, transport: transport.mode, status, result, backendDown });
+  const shown = view.state === 'RECOGNIZED' ? result?.label : null;
+  const supported = status?.ready ? status.model?.labels || [] : [];
   const unchecked = label => lang !== 'en' && translations[label]?.needs_native_check;
 
   return (
-    <>
+    <div className="page">
       <h1>Translate</h1>
-      {statusError && <p className="error">Server unreachable: {statusError}</p>}
-      {status && !modelReady && (
-        <div className="panel" role="status">
-          <strong>{notTrained ? 'Model not trained yet.' : 'Recognition unavailable.'}</strong>{' '}
-          {notTrained ? 'Signs cannot be recognised until a model is trained from collected takes. Nothing will be guessed.'
-            : (result?.detail || status.detail)}
-        </div>
+      {backendDown && <p className="notice error" role="alert"><strong>Can’t reach the SignSpeak server.</strong>
+        Check your connection and reload the page. If this is the public demo, it may be waking up. Wait a minute and try again.</p>}
+      {!backendDown && view.notTrained && (
+        <p className="notice warn" role="status"><strong>Model not trained yet.</strong>
+          Recognition turns on after the team has verified signs, collected recordings and trained the model. Until then
+          nothing is recognised, and SignSpeak will not guess. You can still try the camera and hand tracking.</p>
       )}
-      <div className="row">
-        <label>Meaning in{' '}
-          <select value={lang} onChange={e => chooseLanguage(e.target.value)}>
-            {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-          </select>
-        </label>
-        <span className={`badge ${state}`} aria-live="polite">{notTrained && state === 'ERROR' ? 'Model not trained' : STATE_TEXT[state]}</span>
-        <span className="muted">{TRANSPORT_TEXT[transport.mode]}{transport.mode === 'reconnecting' ? ` (${transport.retries}/${transport.max})` : ''}</span>
-      </div>
+      {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{status?.detail || result?.detail}</p>}
 
-      <CameraView cam={cam} />
+      <div className="translate-layout">
+        <div>
+          <CameraView cam={cam} label="Mirrored camera preview with hand and upper-body tracking" />
+          <p className="hint muted"><InfoIcon className="icon" style={{ width: 22, height: 22, flex: 'none' }} />
+            Sit so your hands and shoulders are in view. Make the sign, then hold it for about a second.</p>
+        </div>
 
-      <div className="panel" aria-live="polite">
-        {shown ? (
-          <>
-            <div className="big">{meaning(shown)}</div>
-            <div className="muted">{shown}{unchecked(shown) ? ' · translation not yet checked by a native speaker' : ''}</div>
-          </>
-        ) : (
-          <div className="big muted">{state === 'RECOGNIZING' ? '…' : '—'}</div>
-        )}
-        {modelReady && typeof result?.confidence === 'number' && (
+        <section className="card result" aria-labelledby="result-heading">
+          <h2 id="result-heading" className="sr-only">Result</h2>
           <div className="row">
-            <span>Confidence</span>
-            <div className="bar" style={{ width: 200 }}><div style={{ width: `${Math.round(result.confidence * 100)}%` }} /></div>
-            <span>{Math.round(result.confidence * 100)}% · margin {Math.round((result.margin ?? 0) * 100)}%</span>
+            <span className="badge" data-state={view.state} data-variant={view.notTrained && view.state === 'ERROR' ? 'warn' : undefined} aria-live="polite">{view.badge}</span>
+            <span className="muted small">{TRANSPORT_TEXT[transport.mode]}{transport.mode === 'reconnecting' ? ` (${transport.retries}/${transport.max})` : ''}</span>
           </div>
-        )}
-        {result && (
-          <p className="muted">
-            Latency: model {result.latency_ms?.model != null ? `${result.latency_ms.model.toFixed(1)} ms` : '–'} ·
-            server {result.latency_ms?.server != null ? `${result.latency_ms.server.toFixed(1)} ms` : '–'} ·
-            round trip {rtt != null ? `${rtt.toFixed(0)} ms` : '–'}
-          </p>
-        )}
-        {lastError && <p className="warn">{lastError}</p>}
-        {transport.detail && transport.mode !== 'ws' && <p className="muted">{transport.detail}</p>}
+          <label className="field" style={{ maxWidth: 260 }}>Meaning in
+            <select value={lang} onChange={e => chooseLanguage(e.target.value)}>
+              {LANGUAGES.map(l => <option key={l.code} value={l.code} lang={l.bcp47}>{l.name}{l.english ? ` (${l.english})` : ''}</option>)}
+            </select>
+          </label>
+
+          <div className="output" lang={LANGUAGES.find(l => l.code === lang)?.bcp47}>
+            {shown
+              ? <p className="meaning">{meaningOf(translations, shown, lang)}</p>
+              : <p className="meaning placeholder">{view.placeholder}</p>}
+          </div>
+          {shown && <p className="sign-label">ISL sign: {shown}{unchecked(shown) ? ' · translation awaiting native-speaker check' : ''}</p>}
+
+          {status?.ready && typeof result?.confidence === 'number' && (
+            <div className="row">
+              <span id="conf-label">Confidence</span>
+              <div className="meter" role="meter" aria-labelledby="conf-label" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(result.confidence * 100)}>
+                <span style={{ width: `${Math.round(result.confidence * 100)}%` }} />
+              </div>
+              <span>{Math.round(result.confidence * 100)}%</span>
+            </div>
+          )}
+          <dl className="stats">
+            <div><dt>Latency</dt><dd>{rtt != null ? `${rtt.toFixed(0)} ms` : '–'}</dd></div>
+            <div><dt>Model</dt><dd>{result?.latency_ms?.model != null ? `${result.latency_ms.model.toFixed(1)} ms` : '–'}</dd></div>
+            <div><dt>Camera</dt><dd>{cam.stats.fps != null ? `${cam.stats.fps.toFixed(0)} fps` : '–'}</dd></div>
+          </dl>
+          {lastError && !backendDown && <p className="notice warn small">{lastError}</p>}
+
+          <h3 style={{ marginTop: 18 }}>Recent</h3>
+          {history.length ? (
+            <ul className="history">
+              {history.map((h, i) => (
+                <li key={i}><span lang={LANGUAGES.find(l => l.code === lang)?.bcp47}>{meaningOf(translations, h.label, lang)}</span>
+                  <span className="muted small">{h.label} · {h.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></li>
+              ))}
+            </ul>
+          ) : <p className="muted">Nothing recognised yet.</p>}
+        </section>
       </div>
 
-      <div className="panel">
-        <h2>Recent</h2>
-        {history.length ? (
-          <ul>{history.map((h, i) => <li key={i}>{h.at.toLocaleTimeString()} · {meaning(h.label)} ({h.label}, {Math.round(h.confidence * 100)}%)</li>)}</ul>
-        ) : <p className="muted">Nothing recognised yet.</p>}
-      </div>
-    </>
+      <section className="card" aria-labelledby="supported-heading">
+        <h2 id="supported-heading" className="h3">Signs this model recognises</h2>
+        {supported.length
+          ? <ul className="strip">{supported.map(l => <li key={l}>{meaningOf(translations, l, lang)} <span className="muted small">({l})</span></li>)}</ul>
+          : <p className="muted">None yet. <a href="/learn" onClick={link('/learn')}>See which signs are being prepared</a>.</p>}
+      </section>
+      <div className="sr-only" aria-live="assertive" aria-atomic="true">{announcement}</div>
+    </div>
   );
 }
