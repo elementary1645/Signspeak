@@ -67,8 +67,9 @@ class LiveService:
 
 
 class RateLimiter:
-    def __init__(self, rate=MAX_RATE):
-        self.rate, self.tokens, self.last = rate, float(rate), time.monotonic()
+    def __init__(self, rate=None):
+        self.rate = rate or MAX_RATE
+        self.tokens, self.last = float(self.rate), time.monotonic()
 
     def allow(self):
         now = time.monotonic()
