@@ -16,3 +16,7 @@ backend/models/*
 !backend/models/manifest.json
 *.joblib
 .DS_Store
+web/node_modules/
+web/dist/
+web/public/mediapipe/
+*.task

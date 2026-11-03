@@ -14,6 +14,7 @@ from .dataset import ROOT, Record, vocabulary
 from .detector import Detector, THRESHOLD, decode_image
 from .features import normalize, SCHEMA
 from .recognition import Recognizer, Stabilizer
+from backend.live import web
 
 
 @asynccontextmanager
@@ -43,6 +44,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title='SignSpeak Local — ISL collection and recognition', lifespan=lifespan)
+app.include_router(web.router)
 
 
 class Frame(BaseModel):
@@ -78,6 +80,12 @@ def health():
 
 @app.get('/')
 def index():
+    # The built React app is the product; the Phase 1/2 lab stays available at /lab.
+    return web.spa_index() if web.built() else FileResponse(ROOT / 'frontend/index.html')
+
+
+@app.get('/lab')
+def legacy_lab():
     return FileResponse(ROOT / 'frontend/index.html')
 
 
