@@ -5,5 +5,29 @@
   "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
   "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
   "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker",
-  "retrieved": "2026-11-02"
+  "retrieved": "2026-11-02",
+  "assets": [
+    {
+      "file": "hand_landmarker.task",
+      "name": "Google MediaPipe Hand Landmarker full",
+      "version": "1",
+      "precision": "float16",
+      "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker",
+      "retrieved": "2026-11-02",
+      "used_by": ["python hands-v1 detector", "browser lm-v1 extraction"]
+    },
+    {
+      "file": "pose_landmarker_lite.task",
+      "name": "Google MediaPipe Pose Landmarker lite",
+      "version": "1",
+      "precision": "float16",
+      "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+      "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker",
+      "retrieved": "2026-11-03",
+      "used_by": ["browser lm-v1 extraction"]
+    }
+  ]
 }

@@ -1,0 +1,25 @@
+# Render Blueprint: free Docker web service built from this branch.
+# Render free: 512 MB RAM, 0.1 CPU, sleeps after 15 min idle. See docs/DEPLOYMENT.md.
+services:
+  - type: web
+    name: signspeak
+    runtime: docker
+    plan: free
+    branch: feat/phase3-live-recognition
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Private Hugging Face model repo with model.joblib, metrics.json, audio/ (scripts/publish_model.py).
+      - key: MODEL_REPO
+        value: Chinmay1881/signspeak-model
+      # READ-only HF token for that repo. Set it in the Render dashboard; never commit it.
+      - key: HF_TOKEN
+        sync: false
+      # Skip the Phase 1/2 /frames lab's Python MediaPipe: about 125 MB idle instead of about 250 MB.
+      - key: LEGACY_DETECTOR
+        value: "0"
+      # Predict every Nth frame (15 fps in). Raise to 5 or 6 if latency climbs on 0.1 CPU.
+      - key: PREDICT_EVERY
+        value: "3"

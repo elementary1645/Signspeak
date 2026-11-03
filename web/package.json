@@ -1,0 +1,23 @@
+{
+  "name": "signspeak-web",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/copy-wasm.mjs",
+    "dev": "vite",
+    "build": "node scripts/copy-wasm.mjs && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/web.test.mjs tests/product.test.mjs"
+  },
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "5.3.0",
+    "@mediapipe/tasks-vision": "0.10.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "5.1.4",
+    "vite": "7.3.7"
+  }
+}

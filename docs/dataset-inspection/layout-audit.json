@@ -1,0 +1,139 @@
+{
+  "status": "candidate_layout_only_not_validated",
+  "convention": "pose xyz visibility; face xyz; left xyz; right xyz",
+  "ranges_exclude_whole_zero_blocks": true,
+  "candidate_blocks": {
+    "pose": {
+      "min": [
+        -0.3498649001121521,
+        -0.43614882230758667,
+        -3.7297146320343018,
+        5.6110071255943694e-08
+      ],
+      "max": [
+        1.3950908184051514,
+        4.084334850311279,
+        1.7779910564422607,
+        0.9999993443489075
+      ],
+      "out_of_unit": [
+        9013,
+        508253,
+        1005744,
+        0
+      ],
+      "values_per_coordinate": 1217700,
+      "zero_frames": 0,
+      "presence_transitions": 0
+    },
+    "face": {
+      "min": [
+        0.2510354816913605,
+        -0.13190802931785583,
+        -0.09040605276823044
+      ],
+      "max": [
+        0.8599331378936768,
+        0.8647478818893433,
+        0.18535956740379333
+      ],
+      "out_of_unit": [
+        0,
+        461,
+        9431414
+      ],
+      "values_per_coordinate": 17005716,
+      "zero_frames": 563,
+      "presence_transitions": 131
+    },
+    "left": {
+      "min": [
+        -0.03943990170955658,
+        -0.1377686858177185,
+        -0.33820754289627075
+      ],
+      "max": [
+        1.138853669166565,
+        1.3029673099517822,
+        0.1748027354478836
+      ],
+      "out_of_unit": [
+        1063,
+        888,
+        327921
+      ],
+      "values_per_coordinate": 384888,
+      "zero_frames": 18572,
+      "presence_transitions": 2274
+    },
+    "right": {
+      "min": [
+        -0.11382286250591278,
+        0.0019173100590705872,
+        -0.4625507891178131
+      ],
+      "max": [
+        1.1021844148635864,
+        1.264944076538086,
+        0.24327139556407928
+      ],
+      "out_of_unit": [
+        384,
+        1329,
+        341981
+      ],
+      "values_per_coordinate": 434301,
+      "zero_frames": 16219,
+      "presence_transitions": 2007
+    }
+  },
+  "frames_by_candidate_hand_count": {
+    "2": 8792,
+    "1": 21425,
+    "0": 6683
+  },
+  "label_paths": [
+    "aboard",
+    "afternoon",
+    "bad",
+    "beside",
+    "byebye",
+    "camera",
+    "car",
+    "correct",
+    "deaf",
+    "evening",
+    "food",
+    "good",
+    "hello",
+    "house",
+    "i/me",
+    "iloveyou",
+    "lunch",
+    "man",
+    "marry",
+    "middle",
+    "morning",
+    "namaste",
+    "night",
+    "no",
+    "pen",
+    "place",
+    "please",
+    "practise",
+    "prisoner",
+    "sorry",
+    "strong",
+    "sweet",
+    "teacher",
+    "thanks",
+    "time",
+    "understand",
+    "water",
+    "week",
+    "woman",
+    "yes",
+    "you"
+  ],
+  "note": "No label mapping or automatic approval. Ranges cannot prove handedness, mirroring, timing or extractor identity."
+}

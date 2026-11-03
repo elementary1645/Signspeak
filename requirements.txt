@@ -8,3 +8,4 @@ scikit-learn
 joblib
 pytest
 httpx
+huggingface_hub  # runtime model download (MODEL_REPO)

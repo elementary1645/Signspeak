@@ -1,0 +1,6 @@
+# Developer tools (not needed at runtime): Space deploy + speech generation.
+#   pip install -r requirements-tools.txt
+#   pip install --no-deps gTTS==2.5.4     # fallback TTS; its click<8.2 pin conflicts, the library does not use click
+huggingface_hub==2.2.0
+edge-tts==7.3.1
+requests==2.34.2
