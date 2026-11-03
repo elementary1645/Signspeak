@@ -3,7 +3,8 @@ import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
 import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../lib/api.js';
-import { InfoIcon } from '../lib/icons.jsx';
+import { InfoIcon, ReplayIcon, SpeakerIcon } from '../lib/icons.jsx';
+import { Speaker, readAutoSpeak, saveAutoSpeak } from '../lib/speech.js';
 import { viewState, STATE_TEXT } from '../lib/translateState.js';
 
 const TRANSPORT_TEXT = {
@@ -23,6 +24,11 @@ export default function Translate({ link }) {
   const [announcement, setAnnouncement] = useState('');
   const [lastError, setLastError] = useState(null);
   const clientRef = useRef(null);
+  const speakerRef = useRef(null);
+  const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak);
+  const [voiceNote, setVoiceNote] = useState(null);
+  const autoSpeakRef = useRef(autoSpeak);
+  autoSpeakRef.current = autoSpeak;
   const langRef = useRef(lang);
   const translationsRef = useRef(translations);
   langRef.current = lang;
@@ -31,6 +37,16 @@ export default function Translate({ link }) {
   useEffect(() => {
     getJSON('/api/status').then(s => { setStatus(s); setBackendDown(false); }).catch(() => setBackendDown(true));
     getJSON('/api/translations').then(setTranslations).catch(() => {});
+    speakerRef.current = new Speaker();
+    getJSON('/api/audio').then(a => speakerRef.current?.setAudio(a.available)).catch(() => {});
+    return () => speakerRef.current?.stop();
+  }, []);
+
+  const say = useCallback(async (label, force = false) => {
+    const language = LANGUAGES.find(l => l.code === langRef.current);
+    const outcome = await speakerRef.current?.speak(label, { lang: language.code, bcp47: language.bcp47, text: meaningOf(translationsRef.current, label, language.code), force });
+    if (outcome === 'none') setVoiceNote(`No voice for ${language.english || language.name} on this browser. Showing text only.`);
+    else if (outcome === 'mp3' || outcome === 'synth') setVoiceNote(null);
   }, []);
 
   const onMessage = useCallback(message => {
@@ -49,8 +65,9 @@ export default function Translate({ link }) {
       const meaning = meaningOf(translationsRef.current, message.event, langRef.current);
       setAnnouncement(`Recognised: ${meaning}`);
       setHistory(h => [{ label: message.event, at: new Date(), confidence: message.confidence }, ...h].slice(0, 8));
+      if (autoSpeakRef.current) say(message.event);
     }
-  }, []);
+  }, [say]);
 
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
   const cam = useLandmarks({ onFrame });
@@ -95,6 +112,11 @@ export default function Translate({ link }) {
             <span className="badge" data-state={view.state} data-variant={view.notTrained && view.state === 'ERROR' ? 'warn' : undefined} aria-live="polite">{view.badge}</span>
             <span className="muted small">{TRANSPORT_TEXT[transport.mode]}{transport.mode === 'reconnecting' ? ` (${transport.retries}/${transport.max})` : ''}</span>
           </div>
+          <div className="row">
+          <label className="switch"><input type="checkbox" checked={autoSpeak} onChange={e => { setAutoSpeak(e.target.checked); saveAutoSpeak(e.target.checked); if (!e.target.checked) speakerRef.current?.stop(); }} />
+            <SpeakerIcon className="icon" style={{ width: 20, height: 20 }} /> Speak results aloud</label>
+          </div>
+          {voiceNote && <p className="muted small">{voiceNote}</p>}
           <label className="field" style={{ maxWidth: 260 }}>Meaning in
             <select value={lang} onChange={e => chooseLanguage(e.target.value)}>
               {LANGUAGES.map(l => <option key={l.code} value={l.code} lang={l.bcp47}>{l.name}{l.english ? ` (${l.english})` : ''}</option>)}
@@ -106,6 +128,11 @@ export default function Translate({ link }) {
               ? <p className="meaning">{meaningOf(translations, shown, lang)}</p>
               : <p className="meaning placeholder">{view.placeholder}</p>}
           </div>
+          {shown && (
+            <div className="row">
+              <button className="btn" onClick={() => say(shown, true)} aria-label={`Say ${meaningOf(translations, shown, lang)} again`}><ReplayIcon className="icon" style={{ width: 20, height: 20 }} /> Replay</button>
+            </div>
+          )}
           {shown && <p className="sign-label">ISL sign: {shown}{unchecked(shown) ? ' · translation awaiting native-speaker check' : ''}</p>}
 
           {status?.ready && typeof result?.confidence === 'number' && (

@@ -127,3 +127,16 @@ async def save_take(request: Request):
         except OSError as exc:
             raise HTTPException(503, 'Could not write take; check server storage') from exc
     return {'saved': True, 'take_id': meta['take_id'], 'file': path.name}
+
+
+@router.get('/audio')
+def audio_manifest():
+    """Which pre-generated mp3s are fresh for the current translations (stale ones are never offered)."""
+    from .audio import audio_status, load_manifest, served_dir
+    directory = served_dir()
+    try:
+        manifest = load_manifest(directory)
+        labels = vocab.verified()
+    except ValueError as exc:
+        raise HTTPException(503, f'Audio manifest or vocabulary invalid: {exc}') from exc
+    return audio_status(manifest, translations(), labels, directory)
