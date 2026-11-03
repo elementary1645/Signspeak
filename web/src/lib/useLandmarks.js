@@ -4,17 +4,22 @@ import { POLICY, validateHands } from './handValidation.js';
 import { FpsMeter } from './capture.js';
 import { FrameClock, FreshFrame, validResultPair, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
-export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY }) {
+export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY, onUncertain }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const session = useRef(null);
   const onFrameRef = useRef(onFrame);
+  const onUncertainRef = useRef(onUncertain);
+  onUncertainRef.current = onUncertain;
   onFrameRef.current = onFrame;
   const [settings, setSettings] = useState({ width: 640, fps, delegate: 'CPU' });
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [lastFrame, setLastFrame] = useState(null);
   const [stats, setStats] = useState({});
+  const [logCandidates, setLogCandidates] = useState(false);
+  const logCandidatesRef = useRef(false);
+  logCandidatesRef.current = logCandidates;
   const [diagnostics, setDiagnostics] = useState(null);
   const overlayMs = useRef(0);
   const onOverlayDraw = useCallback(ms => { overlayMs.current = ms; }, []);
@@ -110,17 +115,31 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
           let processMs = 0;
           if (validResultPair(hand, pose, timestamp, performance.now() - now)) {
             const rawFrame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
-            const accepted = validateHands(rawFrame, handValidation);
-            setDiagnostics(accepted.diagnostics);
+            const accepted = validateHands(rawFrame, { ...handValidation, allowHandednessFallback: effectiveFps !== 15 });
+            const details = { ...accepted.diagnostics, t_ms: rawFrame.t_ms, sourceTimestamp: timestamp,
+              workerTimestamps: { hand: hand.timestamp, pose: pose.timestamp },
+              resultAgeMs: performance.now() - now, input: { width: input.width, height: input.height },
+              detectorThresholds: { detection: POLICY.minHandDetectionConfidence, presence: POLICY.minHandPresenceConfidence,
+                tracking: POLICY.minTrackingConfidence }, presenceConfidence: null };
+            setDiagnostics(details);
+            if (logCandidatesRef.current) console.table(details.raw.map(d => ({ t_ms: details.t_ms, handWrist: JSON.stringify(d.handWrist),
+              handWristPixels: JSON.stringify(d.handWristPixels), handedness: d.handedness, handednessScore: d.handednessScore,
+              poseLeftWrist: JSON.stringify(d.poseWrists[0].coordinates), poseRightWrist: JSON.stringify(d.poseWrists[1].coordinates),
+              leftVisibility: d.poseWrists[0].visibility, rightVisibility: d.poseWrists[1].visibility,
+              leftDistancePixels: d.poseWrists[0].distancePixels, rightDistancePixels: d.poseWrists[1].distancePixels,
+              leftDistanceShoulders: d.poseWrists[0].distanceShoulders, rightDistanceShoulders: d.poseWrists[1].distanceShoulders,
+              state: d.status, side: d.side, source: d.sideSource, reason: d.reason, legacyReason: d.legacyReason })));
             if (s.fresh.accept(accepted.frame, now)) {
               // Every consumer receives this exact accepted observation; no rejected raw data escapes.
-              onFrameRef.current?.(accepted.frame);
+              if (accepted.diagnostics.recordable) onFrameRef.current?.(accepted.frame);
+              else onUncertainRef.current?.({ ...details, t_ms: rawFrame.t_ms });
               meter.add(accepted.frame.t_ms);
             }
             processMs = performance.now() - processingStart;
           } else {
             staleResults++;
             setLastFrame(null);
+            onUncertainRef.current?.({ t_ms: timestamp, state: 'stale' });
             setDiagnostics({ stale: true, reason: 'Expired or mismatched worker result; not recorded' });
           }
           const renderMs = overlayMs.current;
@@ -146,5 +165,5 @@ export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceF
     document.addEventListener('visibilitychange', visibility);
     return () => { window.removeEventListener('pagehide', stop); document.removeEventListener('visibilitychange', visibility); };
   }, [stop]);
-  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
+  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, logCandidates, setLogCandidates, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
 }

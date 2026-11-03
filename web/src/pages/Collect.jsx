@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { POLICY } from '../lib/handValidation.js';
+import { POLICY, policyMatches } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { APP_VERSION, FRAME_SCHEMA, TAKE_SCHEMA, frameQuality } from '../lib/lm.js';
@@ -35,7 +35,9 @@ export default function Collect() {
     clearTimeout(c.safety);
     const frames = c.frames;
     const durationMs = Math.round(Math.min(CAPTURE_MAX_MS, performance.now() - c.start));
-    setPending({ frames, quality: frameQuality(frames), verdict: takeVerdict(frames, c.protocol), protocol: c.protocol, label: c.label, prompt: c.prompt, durationMs });
+    const verdict = { ...takeVerdict(frames, c.protocol), uncertainFrames: c.uncertainFrames };
+    verdict.valid = verdict.valid && !c.uncertainFrames;
+    setPending({ frames, quality: frameQuality(frames), verdict, protocol: c.protocol, label: c.label, prompt: c.prompt, durationMs });
     setPhase('review');
   }, []);
 
@@ -45,7 +47,11 @@ export default function Collect() {
     c.frames.push(frame);
     if (captureDone(c.frames, c.start, frame.t_ms, c.protocol)) finish();
   }, [finish]);
-  const cam = useLandmarks({ onFrame, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
+  const onUncertain = useCallback(details => {
+    const c = capture.current;
+    if (c && details.t_ms >= c.start) c.uncertainFrames++;
+  }, []);
+  const cam = useLandmarks({ onFrame, onUncertain, requiredFps: spec.fps, maxSourceFps: spec.sampling === 'actual-frames' ? spec.maxFps : null });
 
   useEffect(() => {
     Promise.all([fetch('/api/config').then(r => r.json()), fetch('/api/vocabulary').then(r => r.json())])
@@ -69,7 +75,8 @@ export default function Collect() {
   const countFor = l => mine.filter(t => t.label === l && t.capture_protocol === protocol).length;
   const prompts = config?.none_prompts || [];
   const nonePrompt = prompts.length ? prompts[countFor(noneLabel) % prompts.length] : null;
-  const ready = cam.status === 'running' && PSEUDONYM.test(signer) && PSEUDONYM.test(session) && consent && label;
+  const policyCompatible = policyMatches(config?.hand_validation);
+  const ready = policyCompatible && cam.status === 'running' && PSEUDONYM.test(signer) && PSEUDONYM.test(session) && consent && label;
   const labels = [...signs.map(s => s.label), noneLabel];
   const targets = config?.targets || { per_sign: 8, none: 16 };
   const summary = sessionSummary(takes, signer, session, labels, targets, noneLabel, protocol);
@@ -84,7 +91,7 @@ export default function Collect() {
       setPhase('recording');
       const start = performance.now();
       // Keep the protocol selected at the start; never retag a pending take.
-      capture.current = { start, frames: [], protocol, label, prompt: isNone ? nonePrompt : null,
+      capture.current = { start, frames: [], uncertainFrames: 0, protocol, label, prompt: isNone ? nonePrompt : null,
                           safety: setTimeout(finish, CAPTURE_MAX_MS + 150) };
     }, 3000));
   }
@@ -144,6 +151,7 @@ export default function Collect() {
       <h1>Collect sign takes</h1>
       <p className="lede">Each take records hand and upper-body landmark points for up to 3 seconds. No video or images are saved or sent.
         Follow the collection protocol your team lead gave you.</p>
+      {config && !policyCompatible && <p className="notice error" role="alert">Browser and server hand-validation policies differ. Rebuild and restart the server, then refresh before recording.</p>}
       {loadError && <p className="notice error" role="alert">{loadError}</p>}
       {storage.loaded && !storage.persistent && <p className="notice warn">This browser cannot autosave (storage blocked or private window). Download your data before closing the page.</p>}
       {storage.migrated > 0 && <p className="notice ok">Restored {storage.migrated} takes from an earlier version of this page.</p>}
@@ -198,7 +206,8 @@ export default function Collect() {
             <p>{pending.label}: {pending.quality.frames} frames over {(pending.quality.durationMs / 1000).toFixed(2)} s
               ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
               upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
-            {!verdict.valid && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
+            {verdict.uncertainFrames > 0 && <p className="notice error">Uncertain hand detections occurred during this recording. Discard and inspect candidate diagnostics; no uncertain landmarks were recorded.</p>}
+            {!verdict.valid && !verdict.uncertainFrames && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
             {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
             {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
             {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}

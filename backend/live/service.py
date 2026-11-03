@@ -19,7 +19,7 @@ from backend.app.recognition import Stabilizer
 from . import features, vocab
 from .model import LiveModel, model_path
 from .protocol import validate_frame
-from .hand_validation import filter_hands
+from .hand_validation import assess_hands
 
 
 
@@ -105,6 +105,7 @@ class Session:
         self.frames = deque()
         self.vectors = deque()  # frame_vector() of each buffered frame, computed once on arrival
         self.count = 0
+        self.temporal = None
         self.stabilizer = Stabilizer()
         self.limiter = RateLimiter()
         self.touched = time.monotonic()
@@ -120,12 +121,27 @@ class Session:
         started = time.perf_counter()
         self.touched = time.monotonic()
         frame = validate_frame(raw)
-        if getattr(getattr(self.service.model, 'features', None), 'SCHEMA', None) == 'hp-v2-8fps':
-            frame = filter_hands(frame)
+        temporal = getattr(self.service.model, 'features', features)
+        if self.temporal is not temporal:
+            self.reset()  # never reuse cached vectors across a feature/observation-policy module change
+            self.temporal = temporal
+        if temporal.SCHEMA == 'hp-v2-8fps':
+            assessment = assess_hands(frame)
+            if not assessment['recordable']:
+                self.reset()  # uncertainty is not a no-hand frame or a classifier input
+                status = self.service.status()
+                return {'type': 'prediction', 'state': 'UNCERTAIN_HANDS' if status['ready'] else 'ERROR',
+                        'code': 'UNCERTAIN_HANDS' if status['ready'] else status['code'],
+                        'detail': 'Hand candidates are uncertain; no recognition or recording for this observation'
+                                  if status['ready'] else status['detail'],
+                        'label': None, 'confidence': None, 'margin': None, 'event': None,
+                        'model_ready': status['ready'], 't_ms': frame['t_ms'],
+                        'latency_ms': {'model': None, 'server': (time.perf_counter() - started) * 1000}}
+            frame = assessment['frame']
         if self.frames and frame['t_ms'] <= self.frames[-1]['t_ms']:
             self.reset()  # camera restarted or clock jumped: start a fresh buffer
         self.frames.append(frame)
-        self.vectors.append(features.frame_vector(frame))
+        self.vectors.append(temporal.frame_vector(frame))
         while self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] > BUFFER_MS:
             self.frames.popleft()
             self.vectors.popleft()

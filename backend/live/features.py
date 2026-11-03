@@ -99,10 +99,10 @@ def assign_sides(frame):
     return slots, True
 
 
-def frame_vector(frame):
+def frame_vector(frame, *, assignment=None):
     """One validated lm-v1 frame -> FRAME_DIM vector."""
     v = np.zeros(FRAME_DIM)
-    slots, from_label = assign_sides(frame)
+    slots, from_label = assign_sides(frame) if assignment is None else assignment
     reference = body_frame(frame)
     for i, hand in enumerate(slots):
         if hand is None:

@@ -20,11 +20,11 @@ test('toFrame builds lm-v1 with rounding, handedness and null pose', () => {
   assert.equal(toFrame(1, { landmarks: [handAt(0.3, 0.8)], handednesses: [[{ categoryName: 'Right', score: 1 }]] }, null, 640, 480).hands[0].handedness, 'Right');
 });
 
-test('displaySides uses nearest pose wrist, like the server', () => {
+test('legacy pose assignment remains nearest wrist for comparison', () => {
   const f = toFrame(1, { landmarks: [handAt(0.66, 0.8), handAt(0.34, 0.8)], handedness: [[{ categoryName: 'Left', score: 1 }], [{ categoryName: 'Left', score: 1 }]] },
     { landmarks: [pose()] }, 640, 480);
-  assert.deepEqual(displaySides(f), ['L', 'R']);
-  assert.deepEqual(displaySides({ ...f, pose: null }), ['?', '?']);
+  assert.deepEqual(poseSides(f), ['L', 'R']);
+  assert.deepEqual(poseSides({ ...f, pose: null }), ['?', '?']);
 });
 
 test('frameQuality and JSONL export', () => {
@@ -218,7 +218,7 @@ test('8 FPS scheduling avoids 20/30 FPS camera quantization and keeps a native 9
 });
 
 import handCases from './fixtures/hand-validation.json' with { type: 'json' };
-import { POLICY, validateHands } from '../src/lib/handValidation.js';
+import { POLICY, validateHands, poseSides } from '../src/lib/handValidation.js';
 import { FreshFrame, validResultPair } from '../src/lib/tracking.js';
 test('browser geometry gate rejects false face detections and preserves face/chest/crossed signing', () => {
   for (const c of handCases) {
@@ -277,4 +277,74 @@ test('a queued expiry for an older observation cannot clear a newer frame', () =
   fresh.close();
   timers[1]();
   assert.equal(output.at(-1).t_ms, 200);
+});
+
+test('raised/independent hands do not need valid shoulders or wrist alignment', () => {
+  for (const name of ['left raised above shoulder', 'right raised above shoulder', 'both hands raised',
+    'unreliable shoulders reported regression pattern', 'raised hand with missing pose wrist confidence']) {
+    const c = handCases.find(c => c.name === name);
+    const result = validateHands(c.frame);
+    assert.equal(result.diagnostics.recordable, true, name);
+    assert.deepEqual(displaySides(result.frame), c.sides, name);
+    assert.ok(result.diagnostics.raw.every(d => d.sideSource === 'handedness'), name);
+  }
+  const sample = validateHands(handCases.find(c => c.name === 'unreliable shoulders reported regression pattern').frame);
+  assert.equal(sample.diagnostics.raw[0].legacyReason, 'unreliable-shoulders');
+  assert.equal(sample.diagnostics.raw[0].reason, 'hand-supported-pose-unavailable');
+  assert.equal(sample.diagnostics.raw[0].poseWrists.length, 2);
+});
+test('face conflict and unavailable pose are uncertain, not no hands or a recording', () => {
+  for (const name of ['face false positive despite high handedness score', 'no pose wrists',
+    'face proximity and missing wrists are uncertain']) {
+    const result = validateHands(handCases.find(c => c.name === name).frame);
+    assert.equal(result.diagnostics.state, 'uncertain');
+    assert.equal(result.diagnostics.recordable, false);
+    assert.equal(result.frame.hands.length, 0);
+  }
+  assert.equal(validateHands(handCases.find(c => c.name === 'no visible hands').frame).diagnostics.state, 'none');
+});
+test('uncertainty resets WebSocket history and ignores predictions from before the reset', () => {
+  FakeSocket.instances = [];
+  const messages = [];
+  const client = new RecognizerClient({ url: 'ws://fixture', WebSocketImpl: FakeSocket, onMessage: m => messages.push(m) });
+  client.start();
+  const socket = FakeSocket.instances[0]; socket.open();
+  client.send({ t_ms: 90 });
+  client.reset(100);
+  assert.deepEqual(socket.sent.at(-1), { type: 'reset' });
+  socket.onmessage({ data: JSON.stringify({ type: 'prediction', t_ms: 90, event: 'STALE' }) });
+  socket.onmessage({ data: JSON.stringify({ type: 'prediction', t_ms: 101, label: null }) });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].t_ms, 101);
+  client.stop();
+});
+test('uncertainty suppresses an in-flight HTTP response and resets the next batch', async () => {
+  const messages = [], posts = [];
+  let resolveRequest;
+  const client = new RecognizerClient({ url: 'ws://fixture', onMessage: m => messages.push(m),
+    fetchImpl: async (_url, init) => {
+      posts.push(JSON.parse(init.body));
+      if (posts.length === 1) await new Promise(resolve => { resolveRequest = resolve; });
+      return { ok: true, json: async () => ({ replies: [{ type: 'prediction', t_ms: posts.length === 1 ? 90 : 101 }] }) };
+    } });
+  client.stopped = false; client.mode = 'http';
+  [80, 85, 90].forEach(t_ms => client.send({ t_ms }));
+  client.reset(100); resolveRequest();
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(messages.length, 0);
+  [101, 102, 103].forEach(t_ms => client.send({ t_ms }));
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(posts[1].reset, true);
+  assert.equal(messages.length, 1);
+  client.stop();
+});
+
+import { policyMatches } from '../src/lib/handValidation.js';
+test('mixed browser/server observation policies fail closed without changing capture timing', () => {
+  assert.equal(policyMatches(POLICY), true);
+  assert.equal(policyMatches(null), false);
+  assert.equal(policyMatches({ ...POLICY, policy: 'pose-wrist-v1' }), false);
+  assert.equal(policyMatches({ ...POLICY, minHandPresenceConfidence: .65 }), false);
+  assert.equal(PROTOCOLS[DEFAULT_PROTOCOL].fps, 8);
+  assert.equal(PROTOCOLS[DEFAULT_PROTOCOL].window, 16);
 });

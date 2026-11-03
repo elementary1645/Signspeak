@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { policyMatches } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
 import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
@@ -69,8 +70,16 @@ export default function Translate({ link }) {
     }
   }, [say]);
 
+  const readyRef = useRef(false);
+  const policyMismatch = !!status?.ready && status.model?.schema === 'hp-v2-8fps' && !policyMatches(status.model?.hand_validation);
+  readyRef.current = !!status?.ready && !policyMismatch;
+  const onUncertain = useCallback(details => {
+    clientRef.current?.reset(details.t_ms);
+    speakerRef.current?.stop();
+    if (readyRef.current) setResult({ type: 'prediction', state: 'UNCERTAIN_HANDS', code: 'UNCERTAIN_HANDS', label: null });
+  }, []);
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
-  const cam = useLandmarks({ onFrame, requiredFps: status?.ready ? status.model?.fps : null,
+  const cam = useLandmarks({ onFrame, onUncertain, requiredFps: status?.ready ? status.model?.fps : null,
     maxSourceFps: status?.ready && status.model?.temporal?.sampling === 'actual-frames' ? status.model.temporal.maxFps : null });
 
   const modelProtocol = status?.ready ? status.model?.capture_protocol : null;
@@ -81,12 +90,12 @@ export default function Translate({ link }) {
   }, [modelProtocol, cam.status, cam.stop]);
 
   useEffect(() => {
-    if (cam.status !== 'running') return undefined;
+    if (cam.status !== 'running' || policyMismatch) return undefined;
     const client = new RecognizerClient({ url: wsUrl(window.location), onMessage, onTransport: setTransport });
     clientRef.current = client;
     client.start();
     return () => { client.stop(); clientRef.current = null; setResult(null); setRtt(null); };
-  }, [cam.status, onMessage]);
+  }, [cam.status, onMessage, policyMismatch]);
 
   const statusCode = status && !status.ready ? status.code : null;
   useEffect(() => {
@@ -97,7 +106,9 @@ export default function Translate({ link }) {
 
   function chooseLanguage(code) { setLang(code); saveLanguage(code); }
 
-  const view = viewState({ camStatus: cam.status, transport: transport.mode, status, result, backendDown });
+  const displayStatus = policyMismatch ? { ...status, ready: false, code: 'MODEL_INCOMPATIBLE',
+    detail: 'Browser and model observation policies differ. Rebuild/restart both before recognition.' } : status;
+  const view = viewState({ camStatus: cam.status, transport: transport.mode, status: displayStatus, result, backendDown });
   const shown = view.state === 'RECOGNIZED' ? result?.label : null;
   const supported = status?.ready ? status.model?.labels || [] : [];
   const unchecked = label => lang !== 'en' && translations[label]?.needs_native_check;
@@ -113,11 +124,12 @@ export default function Translate({ link }) {
           nothing is recognised, and SignSpeak will not guess. You can still try the camera and hand tracking.</p>
       )}
       {!backendDown && view.loading && <p className="notice" role="status"><strong>Loading the trained model…</strong>The server has just started. Recognition begins in a few seconds.</p>}
-      {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{status?.detail || result?.detail}</p>}
+      {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{displayStatus?.detail || result?.detail}</p>}
 
       <div className="translate-layout">
         <div>
           {status?.ready && <p className="muted">Model: {status.model?.schema} · {status.model?.window} frames at {status.model?.fps} FPS.</p>}
+          {result?.code === 'UNCERTAIN_HANDS' && <p className="notice warn" role="status">Hand detection is uncertain. Recognition is paused; inspect the camera diagnostics.</p>}
           {result?.code === 'INSUFFICIENT_TIMING' && <p className="notice warn" role="status">Tracking FPS is insufficient or uneven. {result.detail}</p>}
           <CameraView cam={cam} label="Mirrored camera preview with hand and upper-body tracking" />
           <p className="hint muted"><InfoIcon className="icon" style={{ width: 22, height: 22, flex: 'none' }} />

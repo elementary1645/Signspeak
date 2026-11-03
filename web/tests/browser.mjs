@@ -48,7 +48,7 @@ try {
       await keep.waitFor({ timeout: 15000 });
       console.log('8 FPS SYNTHETIC CAPTURE:', await page.getByText(/frames over/).textContent());
       if (await keep.isDisabled()) {
-        assert.ok(await page.getByText('Timing contract failed:', { exact: false }).count());
+        assert.ok(await page.getByText(/Timing contract failed:|Uncertain hand detections occurred/).count());
         console.log('Host inference is insufficient/uneven; real capture correctly rejected.');
       }
       await page.getByRole('button', { name: 'Discard', exact: true }).click();
@@ -71,7 +71,7 @@ try {
   await keep.waitFor({ timeout: 15000 });
   assert.equal(await keep.isDisabled(), true);
   console.log('REJECTED SYNTHETIC CAPTURE:', await page.getByText(/frames over/).textContent());
-  assert.ok(await page.getByText('Timing contract failed:', { exact: false }).count());
+  assert.ok(await page.getByText(/Timing contract failed:|Uncertain hand detections occurred/).count());
   // Navigation releases workers and every camera track.
   await page.getByRole('link', { name: 'Home', exact: true }).click();
   await page.waitForFunction(() => window.trackingTest.workers === 0);
@@ -138,7 +138,8 @@ try {
     }
     return n;
   };
-  for (const scene of ['legitimate hand near nose and mouth', 'legitimate hand near chest', 'crossed hands keep anatomical sides',
+  for (const scene of ['legitimate hand near nose and mouth', 'legitimate hand near chest', 'crossed hands keep anatomical sides', 'left raised above shoulder', 'right raised above shoulder', 'both hands raised',
+    'unreliable shoulders reported regression pattern', 'raised hand with missing pose wrist confidence',
     'face false positive despite high handedness score', 'no visible hands', 'no pose wrists']) {
     await controlled.evaluate(scene => { window.validationScene = scene; }, scene);
     const example = handCases.find(c => c.name === scene);
@@ -149,17 +150,19 @@ try {
       const d = JSON.parse(raw);
       return d.acceptedCount === count && d.rawCount === rawCount
         && (!wrist || JSON.stringify(d.raw?.[0]?.landmarks[0]) === JSON.stringify(wrist));
-    }, { count: expected.length, rawCount: example.frame.hands.length, wrist: example.frame.hands[0]?.landmarks[0] });
+    }, { count: expected.length, rawCount: example.frame.hands.length, wrist: example.frame.hands[0]?.landmarks[0].map(v => Math.round(v * 1e5) / 1e5) });
     const text = await controlled.getByLabel('Accepted hand status', { exact: true }).textContent();
-    if (!expected.length) assert.match(text, /Hands: none/);
-    else for (const side of expected) assert.ok(text.includes(side === 'L' ? 'your left' : 'your right'));
+    const diagnostic = JSON.parse(await controlled.getByLabel('Hand validation diagnostics', { exact: true }).textContent());
+    if (diagnostic.uncertainCount) assert.match(text, /uncertain/);
+    else if (!expected.length) assert.match(text, /Hands: none/);
+    if (expected.length) for (const side of expected) assert.ok(text.includes(side === 'L' ? 'your left' : 'your right'));
     assert.equal((await controlled.evaluate(handPixels)) > 0, expected.length > 0, scene);
   }
   // A synchronized but old result, or a wrong source timestamp, must not repopulate the overlay.
   for (const scene of ['delayed-result', 'mismatched-result']) {
     await controlled.evaluate(scene => { window.validationScene = scene; }, scene);
     await controlled.waitForTimeout(900);
-    assert.match(await controlled.getByLabel('Accepted hand status', { exact: true }).textContent(), /Hands: none/);
+    assert.match(await controlled.getByLabel('Accepted hand status', { exact: true }).textContent(), /waiting for fresh tracking/);
     assert.equal(await controlled.evaluate(handPixels), 0);
   }
   await controlled.evaluate(() => { window.validationScene = 'face false positive despite high handedness score'; });
@@ -170,9 +173,41 @@ try {
   await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
   const controlledKeep = controlled.getByRole('button', { name: 'Keep', exact: true });
   await controlledKeep.waitFor({ timeout: 15000 });
+  assert.equal(await controlledKeep.isDisabled(), true);
+  assert.ok(await controlled.getByText('Uncertain hand detections occurred', { exact: false }).count());
+  console.log('Uncertain face candidate blocks the entire take, rather than creating a false NONE recording.');
+  await controlled.getByRole('button', { name: 'Discard', exact: true }).click();
+  await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    return raw && JSON.parse(raw).state === 'none';
+  });
+  await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
+  await controlledKeep.waitFor({ timeout: 15000 });
   assert.equal(await controlledKeep.isDisabled(), false);
   assert.match(await controlled.getByText(/frames over/).textContent(), /16 frames/);
-  console.log('CONTROLLED UI ACCEPTANCE (mock detector):', await controlled.getByText(/frames over/).textContent());
+  console.log('CONFIRMED NO-CANDIDATE UI CAPTURE:', await controlled.getByText(/frames over/).textContent());
+  await controlledKeep.click();
+  // Realistic independent-hand fixtures must also survive collection, not merely preview.
+  await controlled.evaluate(() => { window.validationScene = 'both hands raised'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    return raw && JSON.parse(raw).acceptedCount === 2;
+  });
+  await controlled.evaluate(() => { window.validationScene = 'no visible hands'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    return raw && JSON.parse(raw).state === 'none';
+  });
+  assert.equal(await controlled.evaluate(handPixels), 0);
+  await controlled.evaluate(() => { window.validationScene = 'both hands raised'; });
+  await controlled.waitForFunction(() => {
+    const raw = document.querySelector('[aria-label="Hand validation diagnostics"]')?.textContent;
+    return raw && JSON.parse(raw).acceptedCount === 2;
+  });
+  await controlled.getByRole('button', { name: 'Record take', exact: true }).click();
+  await controlledKeep.waitFor({ timeout: 15000 });
+  assert.equal(await controlledKeep.isDisabled(), false);
   await controlledKeep.click();
   const saved = await controlled.evaluate(() => new Promise((resolve, reject) => {
     const open = indexedDB.open('signspeak', 1);
@@ -183,12 +218,41 @@ try {
     };
     open.onerror = () => reject(open.error);
   }));
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].hand_validation, 'pose-wrist-v1');
-  assert.ok(saved[0].frames.every(f => f.hands.length === 0));
-  console.log('Rejected face landmarks excluded from the isolated temporary browser dataset.');
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].hand_validation, 'hand-evidence-v2');
+  assert.ok(saved.some(t => t.frames.length === 16 && t.frames.every(f => f.hands.length === 0)));
+  assert.ok(saved.some(t => t.frames.length === 16 && t.frames.every(f => f.hands.length === 2)));
+  assert.ok(saved.every(t => t.hand_validation === 'hand-evidence-v2'));
+  console.log('Uncertain face take was not saved; only the distinct no-candidate and accepted-raised-hand takes exist in the isolated browser dataset.');
   await controlled.getByRole('button', { name: 'Stop camera', exact: true }).click();
   assert.deepEqual(savedRequests, []);
+  // Mixed deployments must not save new-policy observations to an old-policy server.
+  await controlled.route('**/api/config', async route => {
+    const response = await route.fetch();
+    const config = await response.json();
+    await route.fulfill({ response, json: { ...config, server_save: false,
+      hand_validation: { ...config.hand_validation, policy: 'pose-wrist-v1' } } });
+  });
+  await controlled.reload();
+  await controlled.getByPlaceholder('e.g. signer07').fill('mixed_policy_fixture');
+  await controlled.getByRole('checkbox').check();
+  await controlled.getByRole('button', { name: 'Start camera', exact: true }).click();
+  await controlled.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
+  assert.equal(await controlled.getByRole('button', { name: 'Record take', exact: true }).isDisabled(), true);
+  assert.ok(await controlled.getByRole('alert').filter({ hasText: 'policies differ' }).count());
+  await controlled.getByRole('button', { name: 'Stop camera', exact: true }).click();
+  const sockets = [];
+  controlled.on('websocket', socket => sockets.push(socket.url()));
+  await controlled.route('**/api/status', route => route.fulfill({ json: {
+    ready: true, model: { schema: 'hp-v2-8fps', fps: 8, window: 16, labels: [],
+      capture_protocol: 'hp-v2-8fps-timed-1', hand_validation: { policy: 'pose-wrist-v1' } },
+  } }));
+  await controlled.goto(`${process.env.BROWSER_BASE_URL || 'http://127.0.0.1:8000'}/translate`);
+  await controlled.getByText('Browser and model observation policies differ.', { exact: false }).waitFor();
+  await controlled.getByRole('button', { name: 'Start camera', exact: true }).click();
+  await controlled.getByRole('button', { name: 'Stop camera', exact: true }).waitFor();
+  assert.deepEqual(sockets, []);
+  await controlled.getByRole('button', { name: 'Stop camera', exact: true }).click();
   await controlled.close();
   console.log('Browser worker lifecycle, protocol selection, valid UI capture and slow-capture rejection passed.');
 } finally { await browser.close(); }

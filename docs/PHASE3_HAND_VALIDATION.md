@@ -1,5 +1,10 @@
 # False hand detections and handedness consistency
 
+**Historical pose-wrist-v1 report.** Real-device testing subsequently found a genuine-hand
+regression. The replacement policy and pending laptop acceptance are documented in
+[PHASE3_HAND_REGRESSION.md](PHASE3_HAND_REGRESSION.md); the mandatory body gate below is
+no longer the current recommendation.
+
 ## Root cause and investigation
 
 The confirmed Windows webcam observation was a hand skeleton over the nose/mouth while

@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react';
-import { drawOverlay, displaySides } from './lm.js';
+import { drawOverlay, drawUncertainOverlay, displaySides } from './lm.js';
 
 const SIDE = { L: 'your left', R: 'your right', '?': 'side unknown' };
 
@@ -14,8 +14,9 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
     if (frame && (canvas.width !== frame.w || canvas.height !== frame.h)) { canvas.width = frame.w; canvas.height = frame.h; }
     const start = performance.now();
     drawOverlay(canvas.getContext('2d'), frame);
+    if (frame) drawUncertainOverlay(canvas.getContext('2d'), cam.diagnostics?.raw);
     cam.onOverlayDraw?.(performance.now() - start);
-  }, [cam.lastFrame, cam.canvasRef, cam.onOverlayDraw]);
+  }, [cam.lastFrame, cam.diagnostics, cam.canvasRef, cam.onOverlayDraw]);
   const sides = cam.lastFrame ? displaySides(cam.lastFrame) : [];
   const { fps, delegate, detectMs } = cam.stats || {};
   return (
@@ -51,15 +52,18 @@ export default function CameraView({ cam, label = 'Camera preview with hand trac
             </button>}
         {cam.status === 'running' && (
           <span className="muted" aria-label="Accepted hand status">
-            Hands: {cam.lastFrame?.hands.length ? sides.map(s => SIDE[s]).join(' + ') : 'none'}
-            {' · '}Upper body: {cam.lastFrame?.pose ? 'visible' : 'not visible'}
+            Hands: {cam.diagnostics?.uncertainCount ? `${cam.lastFrame?.hands.length ? sides.map(s => SIDE[s]).join(' + ') + ' + ' : ''}uncertain (${cam.diagnostics.uncertainCount} candidate; not recorded)`
+              : cam.diagnostics?.rejectedCount ? 'invalid candidates (not recorded)'
+              : cam.lastFrame?.hands.length ? sides.map(s => SIDE[s]).join(' + ') : cam.lastFrame ? 'none detected' : 'waiting for fresh tracking'}
+            {' · '}Body pose: {cam.lastFrame?.pose ? 'detected' : 'not detected'}
           </span>
         )}
       </div>
-      {cam.status === 'running' && cam.diagnostics?.rawCount > cam.diagnostics?.acceptedCount && <p className="notice warn">Unverified hand candidates were rejected. Keep shoulders, elbows and wrists in view. Hands near the face are allowed when the arm/wrist agrees.</p>}
+      {cam.status === 'running' && cam.diagnostics?.rawCount > cam.diagnostics?.acceptedCount && <p className="notice warn">Hand evidence is uncertain or invalid. Dashed yellow landmarks are preview only and cannot be recorded. Missing body landmarks do not mean no hands; inspect the reason below.</p>}
       {cam.status === 'running' && cam.diagnostics && <details>
         <summary>Local hand validation diagnostics</summary>
-        <p>Raw handedness score is not a hand-presence confidence. Rejected observations are not drawn or recorded.</p>
+        <p>Raw handedness score is not a hand-presence confidence. Yellow uncertain previews and invalid observations are never recorded.</p>
+        <label><input type="checkbox" checked={cam.logCandidates || false} onChange={e => cam.setLogCandidates?.(e.target.checked)} /> Log candidate summaries in this browser console (local only)</label>
         <pre aria-label="Hand validation diagnostics">{JSON.stringify(cam.diagnostics, null, 2)}</pre>
       </details>}
       {cam.error && <p className="notice error" role="alert">{cam.error.message}</p>}

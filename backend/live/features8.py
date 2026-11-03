@@ -6,7 +6,7 @@ energy remains per observed step (not velocity); models are consequently incompa
 import numpy as np
 from . import features as spatial
 from .capture import PROTOCOLS, validate_timing
-from .hand_validation import filter_hands
+from .hand_validation import filter_hands, accepted_assignment
 
 SCHEMA = 'hp-v2-8fps'
 CAPTURE_PROTOCOL = 'hp-v2-8fps-timed-1'
@@ -19,7 +19,8 @@ mirror = spatial.mirror
 
 
 def frame_vector(frame):
-    return spatial.frame_vector(filter_hands(frame))
+    accepted = filter_hands(frame)
+    return spatial.frame_vector(accepted, assignment=accepted_assignment(accepted))
 
 
 def latest_window(frames, vectors=None):

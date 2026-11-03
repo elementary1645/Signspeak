@@ -213,3 +213,20 @@ inputs filter it defensively. New hp-v2 model manifests must include the full ca
 `hand_validation` policy; older/mismatched policies fail closed. This explicitly versions
 observation acceptance while preserving hp-v2-8fps feature shapes/formulas, side assignment
 and timestamp rules. See [the rationale, limits and tests](PHASE3_HAND_VALIDATION.md).
+
+
+## Revised hand evidence policy (hand-evidence-v2)
+
+The current take provenance is `hand_validation: hand-evidence-v2`; the older
+`pose-wrist-v1` tag remains readable. The canonical policy now treats pose as corroboration
+rather than a mandatory existence test. Independent, nondegenerate hand candidates can
+use confident handedness for anatomical slots outside the facial caution region when
+pose identity is unavailable. The existing side-from-label flag marks this route.
+The 152/474 layouts, numerical summary formulas and capture timing rules stay unchanged;
+new hp-v2 manifests must match the explicit new observation policy.
+
+Uncertain/invalid candidates are not converted to no-hand recordings. The whole observation
+is withheld, any uncertain episode invalidates its take, and live prediction history is
+reset. No raw diagnostic fields or preview-only yellow landmarks are added to lm-v1.
+Training and live inference share the same acceptance, assignment and cached-vector path.
+See [the established rejection and pending device validation](PHASE3_HAND_REGRESSION.md).

@@ -202,6 +202,7 @@ def test_lower_protocol_status_ws_http_and_collection_validation(registry, tmp_p
         app.state.live.model = model
         assert client.get('/api/status').json()['model']['capture_protocol'] == P
         assert client.get('/api/config').json()['capture_protocols'][P] == capture.PROTOCOLS[P]
+        assert client.get('/api/config').json()['hand_validation'] == POLICY
         with client.websocket_connect('/ws/recognize') as ws:
             hello = ws.receive_json()
             assert hello['schema'] == F8.SCHEMA and hello['model']['fps'] == 8

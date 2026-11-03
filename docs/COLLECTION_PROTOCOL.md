@@ -42,15 +42,20 @@ original protocol tags; old takes are never automatically upgraded.
 
 ## Verify accepted hand tracking before each session
 
-With both hands outside view, check **Hands: none** and no hand-colored skeleton on your
-face. Raise each hand, then test face/chest signing and crossed hands. Keep shoulders,
-elbows and wrists visible: unsupported candidates are rejected by the `pose-wrist-v1`
-quality gate, not drawn or recorded. Expand **Local hand validation diagnostics** to
-inspect raw handedness scores and rejection reasons locally. This score is not hand
-presence confidence. A genuine hand near the face is allowed when its pose wrist agrees.
-Stop if hands are repeatedly rejected or a false face detection is accepted; do not
-collect training signs until the real-device checks in
-[PHASE3_HAND_VALIDATION.md](PHASE3_HAND_VALIDATION.md) pass.
+The current policy is **hand-evidence-v2**. Confirm genuine left/right hands are accepted
+below and above the shoulders, far from the torso, near the face, and crossing the body.
+Missing body landmarks do not prove a hand is invalid. Dashed **yellow** candidates are
+explicitly **uncertain**, preview only, and cannot be recorded. Any uncertain observation
+during a take disables Keep; discard it and inspect the local candidate reason.
+With both real hands outside view, require no accepted hand-colored skeleton over the
+face. Expand **Local hand validation diagnostics** for wrist coordinates, pose wrist
+visibility, distances, decision reasons and the old-policy comparison. Handedness score
+is identity confidence, not hand-presence confidence. Optional local console logging is
+available; no diagnostics are sent to the server or training dataset.
+
+**The Windows regression is not yet confirmed fixed.** Do not collect training signs
+until the [actual-device acceptance steps](PHASE3_HAND_REGRESSION.md) pass. No headless
+or synthetic test substitutes for accepting genuine hands on that laptop.
 
 ## Signs (about 15 min)
 

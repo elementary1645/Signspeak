@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from . import vocab
 from .capture import PROTOCOLS
+from .hand_validation import POLICY
 from .model import model_path
 from .takes import NONE_PROMPTS, validate_take
 
@@ -35,7 +36,7 @@ def config():
     return {'app_version': APP_VERSION, 'server_save': collection_enabled(),
             'none_label': vocab.NONE_LABEL, 'none_prompts': list(NONE_PROMPTS),
             'targets': {'per_sign': TAKES_PER_SIGN, 'none': TAKES_NONE}, 'capture_ms': 2000,
-            'capture_protocols': PROTOCOLS, 'default_capture_protocol': 'hp-v2-8fps-timed-1'}
+            'hand_validation': POLICY, 'capture_protocols': PROTOCOLS, 'default_capture_protocol': 'hp-v2-8fps-timed-1'}
 
 
 @router.get('/vocabulary')

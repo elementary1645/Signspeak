@@ -46,7 +46,7 @@ class TakeMeta(BaseModel):
     preview_mirrored: bool
     # Optional, added after collection started: older takes without them stay valid.
     capture_protocol: Optional[Literal["hp-v1-timed-1", "hp-v2-8fps-timed-1"]] = None
-    hand_validation: Optional[Literal["pose-wrist-v1"]] = None
+    hand_validation: Optional[Literal["pose-wrist-v1", "hand-evidence-v2"]] = None
     low_fps: Optional[bool] = None
     measured_fps: Optional[float] = Field(default=None, ge=0, le=240)
 

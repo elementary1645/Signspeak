@@ -1,10 +1,12 @@
 // Maps camera/transport/server status to what /translate shows. Pure, unit-tested.
 export const STATE_TEXT = {
+  UNCERTAIN_HANDS: 'Hand detection uncertain',
   INITIALIZING: 'Starting…', READY: 'Ready', DETECTING: 'Hands detected', RECOGNIZING: 'Recognising…',
   RECOGNIZED: 'Recognised', UNKNOWN: 'Not a known sign', NO_HAND: 'No hands in view', ERROR: 'Error',
 };
 
 const PLACEHOLDER = {
+  UNCERTAIN_HANDS: 'Recognition paused while hand evidence is uncertain',
   INITIALIZING: 'Starting…', READY: 'Start the camera to begin', DETECTING: 'Watching your hands…',
   RECOGNIZING: 'Recognising…', UNKNOWN: 'Not a sign I know', NO_HAND: 'Show your hands to the camera', ERROR: '—',
 };
