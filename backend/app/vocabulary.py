@@ -7,6 +7,15 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def check_reference_url(url):
+    """Shared by hands-v1 and hp-v1 gates: one exact HTTPS entry, never an index/channel."""
+    source = urlparse(url)
+    if source.scheme != 'https' or not source.hostname or source.username or source.password:
+        raise ValueError('An exact HTTPS reference URL is required')
+    if source.path.rstrip('/').endswith(('listpage.php', 'index.php', 'isl-dictionary')) or '/channel/' in source.path:
+        raise ValueError('Use an exact entry/video reference, not an index or channel')
+
+
 class SignReview(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     label: str = Field(pattern=r'^[A-Z][A-Z0-9_]{0,47}$')
@@ -31,11 +40,7 @@ class SignReview(BaseModel):
         reviewed = date.fromisoformat(self.reviewed_on)
         if reviewed > date.today():
             raise ValueError('Review date cannot be in the future')
-        source = urlparse(self.reference_url)
-        if source.scheme != 'https' or not source.hostname or source.username or source.password:
-            raise ValueError('An exact HTTPS reference URL is required')
-        if source.path.rstrip('/').endswith(('listpage.php', 'index.php', 'isl-dictionary')) or '/channel/' in source.path:
-            raise ValueError('Use an exact entry/video reference, not an index or channel')
+        check_reference_url(self.reference_url)
         # Provenance of YouTube/Drive entries is attested by the human, not inferred by URL.
         if self.verified and (not self.static or self.motion_required or self.facial_cues_required
                 or self.body_cues_required or self.relative_hand_position_required or not self.hands_v1_suitable):
@@ -54,7 +59,8 @@ def verified_entries(entries):
         if entry['label'] in seen:
             raise ValueError('Duplicate vocabulary label')
         seen.add(entry['label'])
-        if entry.get('verified') is not True:
+        # hp-v1 entries have their own gate (backend/live/vocab.py); never admit them here.
+        if entry.get('pipeline', 'hands-v1') != 'hands-v1' or entry.get('verified') is not True:
             continue
         review = SignReview.model_validate(entry)
         admitted[review.label] = review.model_dump()

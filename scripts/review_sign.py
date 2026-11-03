@@ -10,6 +10,8 @@ def apply_review(review_file, registry=VOCABULARY):
     review = SignReview.model_validate_json(Path(review_file).read_text())
     path = Path(registry)
     entries = json.loads(path.read_text())
+    if any(e['label'] == review.label and e.get('pipeline', 'hands-v1') != 'hands-v1' for e in entries):
+        raise ValueError('Label belongs to the hp-v1 registry; use python -m scripts.verify_sign instead')
     if any(e['label'] == review.label and e.get('verified') is True for e in entries):
         raise ValueError('Already approved: revoke explicitly in registry before changing reference; retrain afterwards')
     entries = [e for e in entries if e['label'] != review.label] + [review.model_dump()]

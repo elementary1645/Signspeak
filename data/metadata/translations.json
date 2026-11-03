@@ -1,0 +1,12 @@
+{
+  "_note": "Meanings shown for recognised hp-v1 labels. Drafted by an AI assistant; every entry has needs_native_check=true until a native speaker of each language confirms it. NONE is never displayed.",
+  "HELLO": {"en": "Hello", "kn": "ನಮಸ್ಕಾರ", "hi": "नमस्ते", "ta": "வணக்கம்", "needs_native_check": true},
+  "THANK_YOU": {"en": "Thank you", "kn": "ಧನ್ಯವಾದಗಳು", "hi": "धन्यवाद", "ta": "நன்றி", "needs_native_check": true},
+  "YES": {"en": "Yes", "kn": "ಹೌದು", "hi": "हाँ", "ta": "ஆம்", "needs_native_check": true},
+  "NO": {"en": "No", "kn": "ಇಲ್ಲ", "hi": "नहीं", "ta": "இல்லை", "needs_native_check": true},
+  "WATER": {"en": "Water", "kn": "ನೀರು", "hi": "पानी", "ta": "தண்ணீர்", "needs_native_check": true},
+  "FOOD": {"en": "Food", "kn": "ಊಟ", "hi": "खाना", "ta": "உணவு", "needs_native_check": true},
+  "HELP": {"en": "Help", "kn": "ಸಹಾಯ", "hi": "मदद", "ta": "உதவி", "needs_native_check": true},
+  "SORRY": {"en": "Sorry", "kn": "ಕ್ಷಮಿಸಿ", "hi": "माफ़ कीजिए", "ta": "மன்னிக்கவும்", "needs_native_check": true},
+  "PLEASE": {"en": "Please", "kn": "ದಯವಿಟ್ಟು", "hi": "कृपया", "ta": "தயவுசெய்து", "needs_native_check": true}
+}
