@@ -1,10 +1,151 @@
-# Critical hand regression — candidate correction, device acceptance pending
+# Critical hand regression — hand-evidence-v3, device acceptance pending
 
 **The Windows laptop regression is not yet confirmed fixed.** Automated fixtures and
-headless tests cannot establish that the actual laptop accepts genuine hands again.
-This change restores independent hand evidence, exposes uncertainty, and supplies the
-measurements needed for a real-device decision. Do not resume sign collection until the
-acceptance steps below pass.
+headless tests cannot establish that the actual laptop accepts genuine hands and rejects
+face hallucinations. Do not resume sign collection until the acceptance steps at the end
+of this document pass on the laptop.
+
+## Real laptop evidence (3 November 2026)
+
+Three diagnostics were captured on the Windows laptop with **Capture Failure B** on
+`/collect` (build `5d233b7`, policy hand-evidence-v2, CPU delegate, 640×480, 8 FPS). The
+signer confirmed what was physically happening in each and consented to storing the
+landmarks as test fixtures in `backend/tests/fixtures/laptop_capture_*.json` (only there).
+
+| Capture | Physical truth (signer-confirmed) | v2 verdict | Evidence in the JSON |
+| --- | --- | --- | --- |
+| 1 (t=72297) | **Real** right hand raised beside the head, away from the face | uncertain / `face-reference-unavailable` | Shoulders y=1.050 and 1.022 (visibility 0.994/0.997) and right elbow y=1.083 (0.958) are just below the image. Right pose wrist (0.922) is 9.1 px from the hand wrist. Palm 79.7 px. Shoulder scale was `null` only because pose points had to be inside [0, 1]. |
+| 2 (t=80664) | **Hallucination** over the nose; both hands out of frame | uncertain / `face-reference-unavailable` | Pose wrists y=1.54/1.66 with visibility 0.31/0.39. Handedness `Left` 0.912. Palm 42.1 px; wrist 82 px from the nose. |
+| 3 (t=208120) | **Hallucination** at the mouth/chin; both hands in the lap | uncertain / `face-proximity-without-wrist-support` | **Pose also hallucinated** a right wrist (visibility 0.611) 50.4 px (0.29 shoulder widths) from the hand wrist; right elbow y=1.106 (0.806). Handedness `Right` 0.987. Palm 67.3 px. |
+
+Replaying the three captures through the v2 JS and Python code reproduces each recorded
+verdict exactly. Accepting pose points slightly outside the image would correctly accept
+capture 1 as right, but would also accept capture 3 as right, because its hallucinated pose
+arm becomes plausible once the elbow counts. **Pose corroboration alone is not enough near
+the face.** v3 therefore adds history: a hand may be in the face zone only if it got there
+from outside it.
+
+## hand-evidence-v3 rules, as implemented
+
+Code: `web/src/lib/handValidation.js` (`HandEvidenceTracker`, `validateSequence`) and its
+mirror `backend/live/hand_validation.py` (`HandEvidenceTracker`, `assess_sequence`). Every
+threshold is in `web/src/lib/handValidation.json`, which both languages load. Coordinates are
+unmirrored image coordinates, and distances are pixel-isotropic (`x·width`, `y·height`).
+
+1. **Pose edge margin (`poseCoordinateMargin` 0.5).** For shoulder scale, `reliable()`
+   (used for the nose, shoulders, elbows and pose wrists) and the arm checks, a pose point
+   counts if x and y are within [−0.5, 1.5] and visibility is at least `minPoseVisibility`
+   (0.5). The **hand** wrist must still be inside [0, 1]. The pose-wrist-v1 comparison
+   (`legacyReason`) keeps its original strict [0, 1] bounds.
+2. **Per-frame provisional verdict.** Same as v2, with one change: being near the face
+   (`nearFace`) no longer blocks the handedness fallback. A pose-supported match wins; else
+   an unknown face reference (no shoulder scale, or an unreliable nose) gives uncertain
+   `face-reference-unavailable`; else the handedness fallback applies (score ≥ 0.8, no
+   identity conflict, duplicate or occupied side). "Provisionally accepted" means passing
+   every rule except face entry.
+3. **Tracking per side (L, R).** A side's track is its sequence of provisionally accepted
+   candidates. Comparing each candidate with that side's last tracked candidate, the track
+   **restarts** (all state cleared, entry lost) if:
+   - more than `maxTrackGapMs` (300) passed since that side was last tracked;
+   - the shoulder scale is unavailable on either frame (never a looser fallback);
+   - the hand wrist moved more than `maxTrackStepShoulders` (0.6) × (dt / 125 ms) shoulder
+     widths. dt is the real time between the two frames; the smaller of the two frames'
+     shoulder scales is used;
+   - palm size (wrist to middle-finger MCP, in pixels) changed by more than a factor of
+     `maxPalmScaleRatio` (1.6).
+
+   The restarted candidate then begins a new track. A clock that goes backwards resets
+   both sides. The browser creates a new tracker each time the camera starts.
+4. **Face-zone entry (`faceEntryWindowMs` 1500).** A provisionally accepted candidate with
+   `nearFace` true is accepted only if its side has already entered on the current track,
+   or was accepted outside the face zone (`faceKnown` and not `nearFace`) at most 1500 ms
+   earlier on the current track. Otherwise it is **uncertain**, `face-zone-without-entry`.
+   Once entered, it stays accepted while the track continues (no expiry). Being accepted
+   outside the face zone again clears "entered" and refreshes the outside time. A
+   pose-supported candidate with an unknown face reference is accepted as in v2, but does
+   not count as outside-face evidence.
+5. **A single frame is a sequence with no history.** `validateHands` / `assess_hands` are a
+   fresh tracker given one frame, so any face-zone hand evaluated alone is uncertain.
+
+### Where the sequence verdict is used
+
+- **Browser:** one tracker per camera session in `useLandmarks`. The collector, Translate,
+  overlay, status label and diagnostics all use the same decision. Accepted frames carry
+  their sides, so the overlay never re-validates them without history.
+- **Takes (decision A1):** the server judges a take on **its own frames only**. `/collect`
+  refuses to start (on Record, and again when the countdown ends) while any accepted or
+  uncertain candidate is in the face zone: "Start with your hands away from your face."
+  The framing hint is appended when the framing warning is active. Before Keep, the browser
+  re-checks the take with the same sequence function the server uses.
+- **Training and features:** `require_accepted_hands` and `features8.latest_window` run
+  `assess_sequence` over the whole take, so features never drop hands the sequence accepted.
+- **Live recognition:** one tracker per WebSocket/HTTP stream. It survives the client's
+  `reset` messages and buffer resets after uncertain frames, and resets only for a new
+  session or a clock jump. The live window is fed from the tracker's own assessments.
+
+### Framing warning (UI only)
+
+On `/collect` and `/translate`, a notice says "Tilt your screen down so your face is in the
+upper half and your shoulders are in view." It appears when, among observations with a pose
+in the last ~2 s (at least 4), more than half have the nose at y > 0.6 or either shoulder at
+y > 1.0. It never blocks recording and never affects admission.
+
+### Diagnostics
+
+The diagnostic JSON adds `tracker.L` / `tracker.R` (`lastOutsideFaceMs`, `trackStartMs`,
+`trackAgeMs`, `gapMs`, `faceEntered`), and per candidate `faceEntry`
+(`not-required`/`entered`/`missing`), `trackContinuity`
+(`new-track`/`continued`/`restarted-step`/`restarted-palm`/`restarted-no-scale`) and, for a
+`face-zone-without-entry` candidate, `trackedSide`. It also adds `framing` and the
+`poseElbows` from `5d233b7`.
+
+### Results on the real captures (software only)
+
+Capture 1 alone is accepted right (`pose-supported`). Captures 2 and 3 alone are uncertain
+(`face-zone-without-entry`). Capture 1 followed 125 ms later by capture 3 or 2 still leaves
+the hallucination uncertain, because its wrist jump breaks the track (`restarted-step`).
+This is replay of single frames, not laptop acceptance.
+
+### Software validation (v3, Codespace)
+
+- The three captures plus 13 synthetic sequences in `web/tests/fixtures/hand-sequences.json`
+  are generated by `make-hand-sequences.mjs`, with expected verdicts written by hand from
+  the rules. JS and Python both assert the same expected per-frame status, reason, side,
+  face entry and continuity. Covered: the side-to-chin path with pose and with the
+  handedness fallback; no history; gaps of 400+ ms and 250 ms; holding at the chin beyond
+  1.5 s; the real-hand-then-false-face hole; a 1.57 sw jump after 250 ms; fast real motion
+  at 0.5 sw per 125 ms; palm ×2 inside and outside the face; and 16-frame takes.
+- Python 235 passed; web JS 48 passed; legacy collector 3 passed; headless Chromium suite
+  passed, including its unchanged face false-positive assertions.
+- None of this is laptop acceptance.
+
+### Known limitations
+
+- **Residual hole when sitting close.** If shoulders are cropped and the face sits low,
+  a real hand leaving the bottom edge near the chin can be within 0.6 shoulder widths per
+  125 ms, and within ×1.6 palm size, of a chin hallucination appearing within 300 ms. That
+  hallucination would inherit the entry and stay accepted while it persists. The framing
+  warning mitigates this by asking for the face in the upper half; it is not proof.
+- A hallucination that MediaPipe tracks consistently (hand and pose) along a plausible path
+  from outside the face zone is accepted. The rules test evidence consistency, not truth.
+- **The live server can be stricter than the browser, never looser.** The browser sends
+  only fully accepted frames, so a frame where one hand was uncertain never reaches the
+  server, and the server may see a gap the browser did not.
+- 0.6 sw, ×1.6, 300 ms and 1500 ms are starting values, not calibrated rates.
+
+### Takes and model manifests
+
+New takes record `hand_validation: hand-evidence-v3`. `pose-wrist-v1` and `hand-evidence-v2`
+takes stay readable, are tagged `hand_validation_current: false` by `validate_take`, and are
+re-checked under the current v3 sequence rule. Model bundles store the full v3 policy plus
+`counts.takes_per_hand_validation`. A model trained under v2 fails closed with a policy
+mismatch and must be retrained. Feature schema `hp-v2-8fps` and capture protocol
+`hp-v2-8fps-timed-1` are unchanged.
+
+## Historical: hand-evidence-v2 investigation
+
+The sections below describe v2 and are kept for history. Where they differ from v3 above,
+v3 is current.
 
 ## Established root cause for the supplied sample
 
@@ -200,7 +341,7 @@ instead of treating missing body evidence as proof of no hand.
    ```
 
    Restart the same Python server used previously. Stop/start the camera. Confirm the
-   diagnostic policy is **hand-evidence-v2**, CPU / 640×480 / hp-v2-8fps-timed-1 / 8 FPS,
+   diagnostic policy is **hand-evidence-v3**, CPU / 640×480 / hp-v2-8fps-timed-1 / 8 FPS,
    and detector detection/presence options are both **0.5**. An old policy indicates
    a stale build/session; do not use it for the acceptance test.
 2. Hold the real **right** hand below, beside, in front of, and above the shoulder for
@@ -212,8 +353,10 @@ instead of treating missing body evidence as proof of no hand.
    or rejected, copy the complete diagnostic summary, especially shoulder/nose data,
    both pose wrists, visibility, distances and current/legacy reasons. **This condition
    has not been verified on the actual laptop yet.**
-4. Sign near the head, forehead, nose, mouth and chest; cross hands and temporarily
-   remove/reintroduce them. Verify anatomical sides, prompt clearing after loss, and
+4. Sign near the head, forehead, nose, mouth and chest, **starting each time with the hand
+   beside the body and moving in** (v3 face entry); cross hands and temporarily
+   remove/reintroduce them. A hand that appears directly at the face is expected to be
+   uncertain (`face-zone-without-entry`). Verify anatomical sides, prompt clearing after loss, and
    recovery without a stuck skeleton. Yellow uncertainty must be distinguishable from
    acceptance and cannot be treated as a successful collection test.
 5. Keep both actual hands out of frame for at least ten seconds while moving the head
