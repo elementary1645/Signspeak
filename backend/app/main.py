@@ -14,7 +14,7 @@ from .dataset import ROOT, Record, vocabulary
 from .detector import Detector, THRESHOLD, decode_image
 from .features import normalize, SCHEMA
 from .recognition import Recognizer, Stabilizer
-from backend.live import web
+from backend.live import api as live_api, web
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ async def lifespan(app):
 
 app = FastAPI(title='SignSpeak Local — ISL collection and recognition', lifespan=lifespan)
 app.include_router(web.router)
+app.include_router(live_api.router)
 
 
 class Frame(BaseModel):
