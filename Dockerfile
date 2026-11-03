@@ -36,5 +36,5 @@ COPY --chown=user --from=web /web/dist web/dist
 
 EXPOSE 7860
 # One worker: per-connection recognition state lives in process memory.
-CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "7860", \
-     "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# PORT is set by Render; Hugging Face Spaces uses app_port 7860 (the fallback).
+CMD ["sh", "-c", "exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1 --proxy-headers --forwarded-allow-ips '*'"]

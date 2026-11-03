@@ -7,10 +7,11 @@ their meaning in English, Kannada, Hindi or Tamil. The browser extracts hand and
 upper-body landmarks with MediaPipe; only landmarks (never images) go to a Python server,
 which computes features, trains CPU scikit-learn models and runs live recognition.
 
-**Live demo:** not deployed yet. Deploying needs a Hugging Face token; see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). After the first deploy the app runs at
-`https://<user>-signspeak.hf.space`. Free Spaces sleep when idle: open the URL about
-10 minutes before judging.
+**Live demo:** not deployed yet. Two free paths are ready: **Render** (builds from this
+branch via `render.yaml` and downloads the trained model from a private Hugging Face repo
+at startup) or a **Hugging Face Space**. Setup takes about 10 minutes; see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Free hosts sleep when idle, so open the URL a
+minute (Render) or ~10 minutes (HF) before judging.
 
 **Status.** Product UI (Home, Translate, Learn ISL, How It Works, About & Model), speech,
 collection, training and live recognition are built and tested. The browser pipeline has
@@ -89,8 +90,10 @@ starting uvicorn. Takes go to `data/raw/takes/` (git-ignored).
 python -m scripts.merge_takes <downloaded .jsonl files or folders>
 python -m backend.live.train
 python -m scripts.generate_audio
-cd web; npm run build; cd ..                    # local use; the Space builds its own
-$env:HF_TOKEN = "<write token>"; python -m scripts.deploy_space --space <user>/signspeak
+cd web; npm run build; cd ..                    # local use only; hosts build their own
+$env:HF_TOKEN = "<write token>"
+python -m scripts.publish_model                 # Render: then dashboard -> Manual Deploy -> Restart service
+# or, for a Hugging Face Space instead:  python -m scripts.deploy_space --space <user>/signspeak
 ```
 
 Live states: `INITIALIZING`, `READY`, `DETECTING`, `RECOGNIZING`, `RECOGNIZED`, `UNKNOWN`,

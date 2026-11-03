@@ -14,7 +14,7 @@ from .dataset import ROOT, Record, vocabulary
 from .detector import Detector, THRESHOLD, decode_image
 from .features import normalize, SCHEMA
 from .recognition import Recognizer, Stabilizer
-from backend.live import api as live_api, service as live_service, web
+from backend.live import api as live_api, remote as live_remote, service as live_service, web
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ async def lifespan(app):
     app.state.streams = {}
     app.state.recognizer = None
     app.state.live = live_service.LiveService().load()  # hp-v1 model; never a guess without it
+    app.state.model_fetch = live_remote.start(app.state.live)  # MODEL_REPO set: background download
     app.state.model_error = 'No trained classifier. Verify signs, collect real data, train and restart.'
     model_path = Path(os.getenv('MODEL_PATH', str(ROOT / 'backend/models/baseline/baseline.joblib')))
     if model_path.exists():
@@ -35,10 +36,14 @@ async def lifespan(app):
             app.state.model_error = None
         except Exception as exc:
             app.state.model_error = f'Model rejected: {type(exc).__name__}: {exc}'
-    try:
-        app.state.detector = Detector()
-    except Exception as exc:
-        app.state.error = f'Hand landmarker unavailable: {type(exc).__name__}; download model and restart'
+    if os.getenv('LEGACY_DETECTOR', '1') == '0':
+        # Small hosts (e.g. Render free, 512 MB): skip the Phase 1/2 /frames lab's Python MediaPipe.
+        app.state.error = 'Legacy hands-v1 lab disabled on this server (LEGACY_DETECTOR=0)'
+    else:
+        try:
+            app.state.detector = Detector()
+        except Exception as exc:
+            app.state.error = f'Hand landmarker unavailable: {type(exc).__name__}; download model and restart'
     yield
     if app.state.detector:
         app.state.detector.close()

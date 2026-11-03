@@ -4,8 +4,6 @@ import threading
 from pathlib import Path
 import numpy as np
 from PIL import Image, UnidentifiedImageError
-import mediapipe as mp
-from mediapipe.tasks.python import BaseOptions, vision
 
 MODEL = Path(__file__).resolve().parents[1] / 'models/hand_landmarker.task'
 THRESHOLD = 0.7
@@ -26,6 +24,10 @@ def decode_image(payload, mirrored=False):
 
 class Detector:
     def __init__(self):
+        # Imported here so the live (hp-v1) server can run without loading Python MediaPipe.
+        import mediapipe as mp
+        from mediapipe.tasks.python import BaseOptions, vision
+        self.mp = mp
         self.lock = threading.Lock()
         self.task = vision.HandLandmarker.create_from_options(vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(MODEL), delegate=BaseOptions.Delegate.CPU),
@@ -34,7 +36,7 @@ class Detector:
 
     def detect(self, rgb):
         with self.lock:
-            result = self.task.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+            result = self.task.detect(self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb))
         hands = []
         for points, categories in zip(result.hand_landmarks, result.handedness):
             category = categories[0]

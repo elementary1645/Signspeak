@@ -8,6 +8,7 @@ States: INITIALIZING, READY, DETECTING, RECOGNIZING, RECOGNIZED, UNKNOWN, NO_HAN
 """
 from collections import deque
 import json
+import os
 import threading
 import time
 from anyio import to_thread
@@ -19,7 +20,22 @@ from . import features, vocab
 from .model import LiveModel, model_path
 from .protocol import validate_frame
 
-PREDICT_EVERY = 3
+
+
+def predict_every():
+    """Prediction stride in frames (env PREDICT_EVERY, default 3 = 5 predictions/s at 15 fps).
+
+    Raise it on tiny CPUs (Render free = 0.1 CPU); the stabilizer still needs 3 accepted
+    predictions spanning >= 0.5 s, so larger strides only make recognition slower to appear.
+    """
+    try:
+        value = int(os.getenv('PREDICT_EVERY', '3'))
+    except ValueError:
+        return 3
+    return min(max(value, 1), 15)
+
+
+PREDICT_EVERY = predict_every()
 MAX_RATE = 20            # messages per second per connection
 MAX_MESSAGE_BYTES = 32_000
 BUFFER_MS = 3000
@@ -86,6 +102,7 @@ class Session:
     def __init__(self, service):
         self.service = service
         self.frames = deque()
+        self.vectors = deque()  # frame_vector() of each buffered frame, computed once on arrival
         self.count = 0
         self.stabilizer = Stabilizer()
         self.limiter = RateLimiter()
@@ -93,6 +110,7 @@ class Session:
 
     def reset(self):
         self.frames.clear()
+        self.vectors.clear()
         self.count = 0
         self.stabilizer = Stabilizer()
 
@@ -104,8 +122,10 @@ class Session:
         if self.frames and frame['t_ms'] <= self.frames[-1]['t_ms']:
             self.reset()  # camera restarted or clock jumped: start a fresh buffer
         self.frames.append(frame)
+        self.vectors.append(features.frame_vector(frame))
         while self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] > BUFFER_MS:
             self.frames.popleft()
+            self.vectors.popleft()
         self.count += 1
         if self.count % PREDICT_EVERY:
             return None
@@ -125,7 +145,7 @@ class Session:
         if not any(f['hands'] for f in recent):
             self.stabilizer.update({'state': 'no_hand', 'label': None}, now)
             return dict(base, state='NO_HAND')
-        window = features.latest_window(list(self.frames))
+        window = features.latest_window(list(self.frames), list(self.vectors))
         hand_rate = (window[:, 148:150].max(axis=1) > 0.5).mean()
         if self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] < 0.9 * (features.WINDOW - 1) * features.PERIOD_MS \
                 or hand_rate < MIN_HAND_RATE:

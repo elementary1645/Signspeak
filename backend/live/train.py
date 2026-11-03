@@ -12,6 +12,8 @@
 - Labels must be human-verified hp-v1 vocabulary (NONE is the only exception).
 """
 import argparse
+import platform
+import time
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
@@ -47,6 +49,7 @@ CANDIDATES = {
 }
 CONFIDENCE_GRID = np.round(np.arange(0.30, 0.96, 0.05), 2)
 MARGIN_GRID = np.round(np.arange(0.0, 0.51, 0.05), 2)
+DEFAULT_MAX_LATENCY_MS = 10.0  # per live window on the training machine; Render free has 0.1 CPU
 NO_SIGNER_WARNING = ('WARNING: fewer than 3 signers. Generalisation to UNSEEN SIGNERS is NOT measured; '
                      'these numbers only describe new takes/sessions of the same people.')
 
@@ -170,8 +173,31 @@ def none_false_accept(y_true, y_pred):
     return float((y_pred[none] != vocab.NONE_LABEL).mean()) if none.any() else None
 
 
+def measure_latency(name, model, x, repeats=30):
+    """Median ms of one single-row predict_proba, the way the live server calls it."""
+    rows = [x[i % len(x)][None, :] for i in range(repeats + 5)]
+    times = []
+    for i, row in enumerate(rows):
+        started = time.perf_counter()
+        model.predict_proba(row)
+        if i >= 5:  # warm-up excluded
+            times.append((time.perf_counter() - started) * 1000)
+    return float(np.median(times))
+
+
+def feature_latency(frames, repeats=30):
+    """Median ms to build + summarize one live window (same for every model)."""
+    times = []
+    for i in range(repeats + 5):
+        started = time.perf_counter()
+        features.summarize(features.latest_window(frames))
+        if i >= 5:
+            times.append((time.perf_counter() - started) * 1000)
+    return float(np.median(times))
+
+
 def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverified=False, mirror_augment=False,
-          candidates=tuple(CANDIDATES), model_card=MODEL_CARD, log=print):
+          candidates=tuple(CANDIDATES), model_card=MODEL_CARD, log=print, max_latency_ms=DEFAULT_MAX_LATENCY_MS):
     takes_path = Path(takes_path)
     if not takes_path.exists():
         raise TrainingError(f'No merged takes at {takes_path}. Record on /collect, then run python -m scripts.merge_takes <files>')
@@ -204,7 +230,20 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         pred = np.array([labels[i] for i in np.argmax(p[evaluated], axis=1)])
         comparison[name] = float(f1_score(y, pred, labels=labels, average='macro', zero_division=0))
         log(f'  {name:20s} closed-set macro-F1 {comparison[name]:.3f} ({scheme})')
-    chosen = max(comparison, key=lambda k: (comparison[k], -list(candidates).index(k)))
+    # Deploy budget: fit each candidate on all data and time one live prediction.
+    feature_ms = feature_latency(takes[0][1])
+    fitted, latency = {}, {}
+    for name in candidates:
+        fitted[name] = single_threaded(CANDIDATES[name]().fit(data['x'], data['y']))
+        latency[name] = round(feature_ms + measure_latency(name, fitted[name], data['x']), 3)
+    eligible = [n for n in candidates if latency[n] <= max_latency_ms]
+    excluded = [n for n in candidates if n not in eligible]
+    for name in excluded:
+        log(f'  {name:20s} excluded: {latency[name]:.1f} ms/window > --max-latency-ms {max_latency_ms}')
+    if not eligible:
+        raise TrainingError(f'No model meets --max-latency-ms {max_latency_ms} (measured {latency}). '
+                            'Raise the limit or use a faster machine budget.')
+    chosen = max(eligible, key=lambda k: (comparison[k], -list(candidates).index(k)))
     p = oof[chosen]
 
     # Honest open-set evaluation: each fold's thresholds are tuned on the OTHER folds' validation predictions.
@@ -232,6 +271,9 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         'scheme': scheme, 'generalisation_to_unseen_signers_measured': measured,
         'warning': None if measured else NO_SIGNER_WARNING,
         'model_comparison_closed_set_macro_f1': comparison, 'chosen_model': chosen,
+        'latency': {'ms_per_window': latency, 'feature_ms': round(feature_ms, 3), 'max_latency_ms': max_latency_ms,
+                    'excluded_for_latency': excluded, 'measured_on': f'{platform.system()} {platform.machine()} {platform.processor()}'.strip(),
+                    'note': 'single-threaded, median of 30 live-style predictions on the training machine'},
         'thresholds': thresholds, 'fold_thresholds': fold_thresholds,
         'closed_set': report(y, closed_pred, labels),
         'open_set_with_rejection': report(y, open_pred, labels),
@@ -244,8 +286,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
               'signers': len(set(data['signer'])), 'sessions': len(set(data['session'])),
               'windows': int((~data['mirrored']).sum()), 'mirrored_windows': int(data['mirrored'].sum()),
               'takes_dropped_unverified': dropped}
-    model = CANDIDATES[chosen]().fit(data['x'], data['y'])
-    single_threaded(model)
+    model = fitted[chosen]
     bundle = {
         'bundle_version': BUNDLE_VERSION, 'schema': features.SCHEMA, 'feature_dim': features.SUMMARY_DIM,
         'window': features.WINDOW, 'fps': features.FPS, 'model': model, 'labels': [str(c) for c in model.classes_],
@@ -292,6 +333,7 @@ def write_model_card(path, bundle, metrics):
 - Evaluation: **{metrics['scheme']}**{'' if metrics['generalisation_to_unseen_signers_measured'] else ' · **generalisation to unseen signers NOT measured**'}
 - Model comparison (closed-set macro-F1): {', '.join(f'{k} {v:.3f}' for k, v in metrics['model_comparison_closed_set_macro_f1'].items())}
 - Thresholds: min_confidence {bundle['thresholds']['min_confidence']}, min_margin {bundle['thresholds']['min_margin']}
+- Live cost per window (features + model, single-threaded, training machine): {', '.join(f'{k} {v:.1f} ms' for k, v in metrics['latency']['ms_per_window'].items())}; limit {metrics['latency']['max_latency_ms']} ms{'; excluded ' + ', '.join(metrics['latency']['excluded_for_latency']) if metrics['latency']['excluded_for_latency'] else ''}
 - Open-set macro-F1 (with rejection, thresholds tuned without the evaluated fold): {open_set['macro_f1']:.3f}
 - NONE false-accept rate: {metrics['none_false_accept_rate']:.1%} · sign rejection rate: {metrics['sign_rejection_rate']:.1%}
 - Held-out-sign check (model trained without the sign): {held_out_text}
@@ -312,6 +354,8 @@ def main():
     parser.add_argument('--drop-unverified', action='store_true', help='leave out unverified labels instead of refusing')
     parser.add_argument('--mirror-augment', action='store_true', help='add mirrored copies (left-handed signers) to training folds')
     parser.add_argument('--models', default=','.join(CANDIDATES), help=f'comma list from {",".join(CANDIDATES)}')
+    parser.add_argument('--max-latency-ms', type=float, default=DEFAULT_MAX_LATENCY_MS,
+                        help='exclude models slower than this per live window (features + predict), measured here')
     parser.add_argument('--no-model-card', action='store_true')
     args = parser.parse_args()
     sys.stdout.reconfigure(errors='replace')
@@ -320,10 +364,11 @@ def main():
         parser.exit(2, f'Unknown model in --models; choose from {",".join(CANDIDATES)}\n')
     try:
         bundle, metrics = train(args.takes, args.out, args.drop_unverified, args.mirror_augment, candidates,
-                                None if args.no_model_card else MODEL_CARD)
+                                None if args.no_model_card else MODEL_CARD, max_latency_ms=args.max_latency_ms)
     except (TrainingError, ValueError, OSError) as exc:
         parser.exit(2, f'Training not run: {exc}\n')
     print(json.dumps({'chosen': bundle['algorithm'], 'thresholds': bundle['thresholds'],
+                      'latency_ms_per_window': metrics['latency']['ms_per_window'],
                       'scheme': metrics['scheme'], 'open_set_macro_f1': metrics['open_set_with_rejection']['macro_f1'],
                       'none_false_accept_rate': metrics['none_false_accept_rate'],
                       'counts': bundle['counts']}, indent=2))

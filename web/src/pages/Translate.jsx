@@ -80,6 +80,13 @@ export default function Translate({ link }) {
     return () => { client.stop(); clientRef.current = null; setResult(null); setRtt(null); };
   }, [cam.status, onMessage]);
 
+  const statusCode = status && !status.ready ? status.code : null;
+  useEffect(() => {
+    if (statusCode !== 'MODEL_LOADING') return undefined;
+    const timer = setTimeout(() => getJSON('/api/status').then(setStatus).catch(() => {}), 3000);
+    return () => clearTimeout(timer);
+  }, [statusCode, status]);
+
   function chooseLanguage(code) { setLang(code); saveLanguage(code); }
 
   const view = viewState({ camStatus: cam.status, transport: transport.mode, status, result, backendDown });
@@ -97,6 +104,7 @@ export default function Translate({ link }) {
           Recognition turns on after the team has verified signs, collected recordings and trained the model. Until then
           nothing is recognised, and SignSpeak will not guess. You can still try the camera and hand tracking.</p>
       )}
+      {!backendDown && view.loading && <p className="notice" role="status"><strong>Loading the trained model…</strong>The server has just started. Recognition begins in a few seconds.</p>}
       {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{status?.detail || result?.detail}</p>}
 
       <div className="translate-layout">

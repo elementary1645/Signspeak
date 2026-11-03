@@ -27,6 +27,7 @@ function ModelPanel({ model }) {
         <dt>Macro-F1 without rejection</dt><dd>{f2(model.macro_f1_closed_set)}</dd>
         <dt>NONE wrongly shown as a sign</dt><dd>{pct(model.none_false_accept_rate)}</dd>
         <dt>Signs rejected as unknown</dt><dd>{pct(model.sign_rejection_rate)}</dd>
+        {model.latency && <><dt>Live cost per window</dt><dd>{model.latency.ms_per_window[model.model_type]?.toFixed(1)} ms on the training machine (limit {model.latency.max_latency_ms} ms)</dd></>}
         <dt>Vocabulary version</dt><dd><code>{model.vocabulary_version}</code></dd>
         <dt>Thresholds</dt><dd>confidence ≥ {model.thresholds.min_confidence}, margin ≥ {model.thresholds.min_margin}</dd>
       </dl>

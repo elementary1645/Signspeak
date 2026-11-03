@@ -99,3 +99,8 @@ test('theme cycles auto -> light -> dark -> auto', () => {
   assert.equal(nextTheme('light'), 'dark');
   assert.equal(nextTheme('dark'), 'system');
 });
+
+test('a model still downloading shows a loading state, not "not trained"', () => {
+  const v = viewState({ camStatus: 'idle', transport: 'idle', status: { ready: false, code: 'MODEL_LOADING' } });
+  assert.deepEqual([v.state, v.badge, v.loading, v.notTrained], ['ERROR', 'Loading model', true, false]);
+});

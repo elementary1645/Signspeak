@@ -126,11 +126,12 @@ def frame_vector(frame):
     return v
 
 
-def resample(frames, start_ms, count=WINDOW):
+def resample(frames, start_ms, count=WINDOW, vectors=None):
     """Nearest-frame resampling to a fixed 15 fps grid. No interpolation.
 
     A grid point with no raw frame within one period becomes an all-missing frame.
-    `frames` are validated lm-v1 frames sorted by t_ms.
+    `frames` are validated lm-v1 frames sorted by t_ms. `vectors`, if given, are their
+    precomputed frame_vector() results (live buffer cache); the output is identical.
     """
     times = np.array([f['t_ms'] for f in frames], dtype=float)
     out = np.zeros((count, FRAME_DIM))
@@ -143,14 +144,14 @@ def resample(frames, start_ms, count=WINDOW):
         best = min((c for c in (j - 1, j) if 0 <= c < len(times)), key=lambda c: abs(times[c] - target))
         if abs(times[best] - target) <= PERIOD_MS:
             if best not in cache:
-                cache[best] = frame_vector(frames[best])
+                cache[best] = vectors[best] if vectors is not None else frame_vector(frames[best])
             out[k] = cache[best]
     return out
 
 
-def latest_window(frames):
+def latest_window(frames, vectors=None):
     """Window ending at the newest frame (live inference)."""
-    return resample(frames, frames[-1]['t_ms'] - (WINDOW - 1) * PERIOD_MS)
+    return resample(frames, frames[-1]['t_ms'] - (WINDOW - 1) * PERIOD_MS, vectors=vectors)
 
 
 def take_windows(frames, offsets_ms=(0, 100, 200, 300, 400)):

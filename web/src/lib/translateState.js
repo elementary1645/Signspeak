@@ -13,6 +13,7 @@ export function viewState({ camStatus, transport, status, result, backendDown })
   const code = result?.code || (status && !status.ready ? status.code : null);
   const notTrained = code === 'MODEL_NOT_TRAINED';
   const incompatible = code === 'MODEL_INCOMPATIBLE';
+  const loading = code === 'MODEL_LOADING';
   let state;
   if (backendDown) state = 'ERROR';
   else if (camStatus === 'loading' || (camStatus === 'running' && (transport === 'connecting' || !result))) state = 'INITIALIZING';
@@ -20,7 +21,7 @@ export function viewState({ camStatus, transport, status, result, backendDown })
   else state = result.state;
   if (camStatus === 'error') state = 'ERROR';
   let badge = STATE_TEXT[state];
-  if (state === 'ERROR') badge = backendDown ? 'Server unreachable' : notTrained ? 'Model not trained' : camStatus === 'error' ? 'Camera problem' : 'Error';
+  if (state === 'ERROR') badge = backendDown ? 'Server unreachable' : notTrained ? 'Model not trained' : loading ? 'Loading model' : camStatus === 'error' ? 'Camera problem' : 'Error';
   const placeholder = state === 'ERROR' && notTrained ? 'Recognition is off until a model is trained' : PLACEHOLDER[state] || '—';
-  return { state, badge, placeholder, notTrained, incompatible };
+  return { state, badge, placeholder, notTrained, incompatible, loading };
 }

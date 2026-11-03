@@ -37,8 +37,10 @@
 
 ## The trained model
 
-The bundle (`model.joblib`) is never committed to GitHub, but `deploy_space.py`
-uploads it to the Space, and **a public Space's files can be downloaded by anyone**.
+The bundle (`model.joblib`) is never committed to GitHub. On Render it lives in a
+**private** Hugging Face model repo (`scripts/publish_model.py` refuses a public one) and is
+downloaded by the server with a read-only token. `deploy_space.py` instead uploads it to the
+Space, and **a public Space's files can be downloaded by anyone**.
 A trained scikit-learn model can contain numeric summaries of individual training windows
 (for example an SVM's support vectors or a tree's split values): pseudonymous landmark
 statistics, never images. Tell signers this when asking for consent. If anyone objects,
