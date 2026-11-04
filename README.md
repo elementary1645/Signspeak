@@ -7,17 +7,19 @@ their meaning in English, Kannada, Hindi or Tamil. The browser extracts hand and
 upper-body landmarks with MediaPipe; only landmarks (never images) go to a Python server,
 which computes features, trains CPU scikit-learn models and runs live recognition.
 
-**Live demo:** not deployed yet. Two free paths are ready: **Render** (builds from this
-branch via `render.yaml` and downloads the trained model from a private Hugging Face repo
-at startup) or a **Hugging Face Space**. Setup takes about 10 minutes; see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Free hosts sleep when idle, so open the URL a
-minute (Render) or ~10 minutes (HF) before judging.
+**Live demo:** https://signspeak-5xwo.onrender.com (Render free tier, built from this
+branch via `render.yaml`; it downloads the trained model from a private Hugging Face repo
+at startup). Use a **laptop or desktop with Chrome or Edge**. Render sleeps when idle, so
+open the URL a minute before judging. A Hugging Face Space path also exists; see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 **Status.** Product UI (Home, Translate, Learn ISL, How It Works, About & Model), speech,
 collection, training and live recognition are built and tested. The browser pipeline has
-been checked in headless Chrome with a fake camera. **No sign is verified yet and no
-model is trained.** Until then `/translate` says "Model not trained yet" and never
-guesses. See [the human steps](#what-needs-a-human).
+been checked in headless Chrome with a fake camera. Three signs are verified and in the
+live model: **HELLO, YES, NO** (run #4, see [docs/MODEL_CARD.md](docs/MODEL_CARD.md)).
+THANK_YOU was verified and trained, then withdrawn because it kept failing live. Without
+a trained model `/translate` says "Model not trained yet" and never guesses. See
+[the human steps](#what-needs-a-human).
 
 ```
 browser: camera → MediaPipe Hand (2) + Pose lite, nominal 8 fps (15 fps option) → lm-v1 landmarks
@@ -143,7 +145,15 @@ hp-v1 registry entries and vice versa.
 
 hp-v1 has no face landmarks, so signs that need facial grammar or mouthing are rejected
 at verification. Small vocabulary, few signers: any unfamiliar movement can still be
-misread. Not for medical or emergency use. No speech output yet.
+misread. Not for medical or emergency use.
+
+**Phones are not supported yet.** Measured on one iPhone (Safari and the in-app browser,
+CPU and GPU delegates, 640 and 320 px input), the browser tracker took about 267 ms per
+inference and never reached the 7 FPS minimum of the 8 FPS model, so `/translate` stayed
+on "waiting for fresh tracking". This is one device, not a test of all phones. Home,
+`/translate` and `/learn` show a notice (not a block) on phones and tablets, and
+`/translate` also shows it whenever the measured tracking FPS stays below 7 for about
+5 seconds. Use a laptop or desktop with Chrome or Edge.
 
 Sign authority: [ISLRTC](https://islrtc.nic.in/isl-dictionary/). Dictionary videos are linked,
 not copied. No external sign dataset is bundled or used.

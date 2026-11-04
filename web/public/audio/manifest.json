@@ -61,36 +61,6 @@
         "voice": "ta-IN-PallaviNeural"
       }
     },
-    "THANK_YOU": {
-      "en": {
-        "file": "THANK_YOU/en.mp3",
-        "text_sha256": "268bc1833e83306f48ae6203eefb86e7a39dedb1d3d6df99c18ef70aa61ef84d",
-        "text": "Thank you",
-        "engine": "edge-tts",
-        "voice": "en-IN-NeerjaNeural"
-      },
-      "kn": {
-        "file": "THANK_YOU/kn.mp3",
-        "text_sha256": "3e42f57e89d51dc582cb1acfd735157da741a944537c14b09847928a3b0dd394",
-        "text": "ಧನ್ಯವಾದಗಳು",
-        "engine": "edge-tts",
-        "voice": "kn-IN-SapnaNeural"
-      },
-      "hi": {
-        "file": "THANK_YOU/hi.mp3",
-        "text_sha256": "45d944ea2c0504040c7b621126623ac51405c13556b42eb96fe580f5555406ae",
-        "text": "धन्यवाद",
-        "engine": "edge-tts",
-        "voice": "hi-IN-SwaraNeural"
-      },
-      "ta": {
-        "file": "THANK_YOU/ta.mp3",
-        "text_sha256": "ede3b004fbdda89e05b0b3114be88b34036cec21b064e61a44d43dbec2b0472a",
-        "text": "நன்றி",
-        "engine": "edge-tts",
-        "voice": "ta-IN-PallaviNeural"
-      }
-    },
     "YES": {
       "en": {
         "file": "YES/en.mp3",

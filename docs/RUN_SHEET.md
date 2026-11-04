@@ -37,7 +37,6 @@ start.
 | Sign | Notes |
 |---|---|
 | **HELLO** | Move your hand away from the top of your head. |
-| **THANK_YOU** | Move your hand from your chin away. |
 | **YES** | Make your hand into a fist and move it up and down next to your head. |
 | **NO** | Make your index and middle finger touch your thumb. |
 
@@ -52,7 +51,7 @@ model when not to answer, so they matter as much as the signs.
 
 ## 5. Finish
 
-1. Check that **Summary** says "Complete" (HELLO, THANK_YOU, YES, NO at 8 and NONE
+1. Check that **Summary** says "Complete" (HELLO, YES, NO at 8 and NONE
    at 16).
 2. Press **Download my data (N takes)** and send the `.jsonl` file to the team lead.
 3. On a shared computer, press **Clear saved takes** after downloading.

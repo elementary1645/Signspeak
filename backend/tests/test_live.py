@@ -184,10 +184,10 @@ def test_hands_v1_gate_ignores_hp_v1_entries(registry):
     assert dataset.vocabulary() == {}
 
 
-REAL_VERIFIED = {'HELLO', 'THANK_YOU', 'YES', 'NO'}
+REAL_VERIFIED = {'HELLO', 'YES', 'NO'}  # THANK_YOU revoked 2026-11-04: perfect offline, failed live
 
 
-def test_real_registry_verifies_exactly_hello_thank_you_yes_no():
+def test_real_registry_verifies_exactly_hello_yes_no():
     entries = json.loads((dataset.ROOT / 'data/metadata/vocabulary.json').read_text(encoding='utf-8'))
     assert entries
     assert {e['label'] for e in entries if e['verified'] is True} == REAL_VERIFIED
@@ -205,6 +205,16 @@ def test_real_registry_verifies_exactly_hello_thank_you_yes_no():
     for e in entries:
         t = translations[e['label']]
         assert set(t) == {'en', 'kn', 'hi', 'ta', 'needs_native_check'} and t['needs_native_check'] is True
+
+
+
+def test_thank_you_is_revoked_and_unlisted():
+    entries = json.loads((dataset.ROOT / 'data/metadata/vocabulary.json').read_text(encoding='utf-8'))
+    thank_you = next(e for e in entries if e['label'] == 'THANK_YOU')
+    assert thank_you['verified'] is False and thank_you['reference_url'] == '' and thank_you['reference_id'] == ''
+    assert 'THANK_YOU' not in {c['label'] for c in vocab.collectable(entries)}  # /collect
+    audio = json.loads((dataset.ROOT / 'web/public/audio/manifest.json').read_text(encoding='utf-8'))
+    assert set(audio['entries']) == REAL_VERIFIED
 
 
 def test_verify_sign_link_approve_revoke(registry):
