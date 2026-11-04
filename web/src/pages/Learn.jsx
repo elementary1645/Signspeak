@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LANGUAGES, getJSON } from '../lib/api.js';
 import { embedUrl } from '../lib/embed.js';
+import DeviceNotice from '../lib/DeviceNotice.jsx';
 
 const yesNo = v => (v === true ? 'Yes' : v === false ? 'No' : 'Not recorded');
 
@@ -49,6 +50,7 @@ export default function Learn() {
   return (
     <div className="page">
       <h1>Learn ISL</h1>
+      <DeviceNotice />
       <p className="lede">These are the signs SignSpeak supports. Each one was checked by a person against the official
         Indian Sign Language Research and Training Centre (ISLRTC) dictionary. Learn from the official video; the notes are a
         reviewer’s summary.</p>

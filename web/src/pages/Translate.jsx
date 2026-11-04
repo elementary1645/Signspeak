@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { policyMatches } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
+import DeviceNotice, { useSlowTracker } from '../lib/DeviceNotice.jsx';
 import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
 import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../lib/api.js';
 import { InfoIcon, ReplayIcon, SpeakerIcon } from '../lib/icons.jsx';
@@ -120,12 +121,14 @@ export default function Translate({ link }) {
   const contract = status?.model?.temporal || {};
   const notice = timingNotice({ code: result?.code, sinceResetMs: performance.now() - resetAtRef.current,
     fps: cam.stats.fps, minFps: contract.minFps, maxFps: contract.maxFps });
+  const slowTracker = useSlowTracker(cam, contract.minFps);
   const supported = status?.ready ? status.model?.labels || [] : [];
   const unchecked = label => lang !== 'en' && translations[label]?.needs_native_check;
 
   return (
     <div className="page">
       <h1>Translate</h1>
+      <DeviceNotice slow={slowTracker} fps={cam.stats.fps} />
       {backendDown && <p className="notice error" role="alert"><strong>Can’t reach the SignSpeak server.</strong>
         Check your connection and reload the page. If this is the public demo, it may be waking up. Wait a minute and try again.</p>}
       {!backendDown && view.notTrained && (

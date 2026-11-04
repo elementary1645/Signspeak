@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON } from '../lib/api.js';
+import DeviceNotice from '../lib/DeviceNotice.jsx';
 import { HandIcon, LanguageIcon, ShieldIcon, SpeakerIcon } from '../lib/icons.jsx';
 
 export default function Home({ link }) {
@@ -12,6 +13,7 @@ export default function Home({ link }) {
 
   return (
     <div className="page">
+      <DeviceNotice />
       <section className="hero">
         <h1>Indian Sign Language to text and speech, in your browser.</h1>
         <p className="lede">SignSpeak watches your hands through the camera, recognises signs that have been checked against the
