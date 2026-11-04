@@ -31,8 +31,8 @@ again. Never invent variants. Small changes in position, speed and distance are 
 
 ## 3. Signs: 8 kept takes each
 
-Record only these four signs. Choose each one in the sign list and watch its official
-video on the page before you start.
+Choose each sign in the sign list and watch its official video on the page before you
+start.
 
 | Sign | Notes |
 |---|---|
@@ -40,9 +40,6 @@ video on the page before you start.
 | **THANK_YOU** | Move your hand from your chin away. |
 | **YES** | Make your hand into a fist and move it up and down next to your head. |
 | **NO** | Make your index and middle finger touch your thumb. |
-
-**Do not record WATER or FOOD.** They appear in the list marked "(not yet verified)".
-Training refuses any file that contains them.
 
 ## 4. NONE: 16 kept takes
 
@@ -53,8 +50,7 @@ model when not to answer, so they matter as much as the signs.
 
 ## 5. Finish
 
-1. In **Summary**, check for HELLO, THANK_YOU, YES, NO at 8 and NONE at 16. The Summary
-   also lists WATER and FOOD, so it will **not** say "Complete". That is expected. Ignore
-   those two rows.
+1. Check that **Summary** says "Complete" (HELLO, THANK_YOU, YES, NO at 8 and NONE
+   at 16).
 2. Press **Download my data (N takes)** and send the `.jsonl` file to the team lead.
 3. On a shared computer, press **Clear saved takes** after downloading.
