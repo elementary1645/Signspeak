@@ -516,3 +516,24 @@ test('take diagnostics log every observation from countdown start and mark take 
   assert.deepEqual([out.takeFrameGapsMs, out.staleResultTimes], [[375], [4350]]);
   assert.deepEqual(out.observations[1].framing, { warn: false, badFraction: 0, samples: 4 });
 });
+
+test('translate debug log: newest first, capped, browser-uncertain bursts merge, nothing else changes', async () => {
+  const { LOG_SIZE, appendLog, fromBrowserUncertain, fromPrediction } = await import('../src/lib/predictionLog.js');
+  let log = [];
+  for (let i = 0; i < LOG_SIZE + 3; i++) {
+    log = appendLog(log, fromPrediction({ state: 'RECOGNIZING', label: 'THANK_YOU', confidence: 0.6, margin: 0.3, t_ms: i * 375 }));
+  }
+  assert.equal(log.length, LOG_SIZE);
+  assert.equal(log[0].t_ms, (LOG_SIZE + 2) * 375);
+  const unknown = fromPrediction({ state: 'UNKNOWN', label: null, confidence: 0.51, margin: 0.1, detail: 'not a known sign', t_ms: 1 });
+  assert.deepEqual([unknown.state, unknown.label, unknown.reason, unknown.event], ['UNKNOWN', null, 'not a known sign', null]);
+  const face = { t_ms: 10, raw: [{ status: 'uncertain', reason: 'face-zone-without-entry' }, { status: 'accepted', reason: 'pose-supported' }] };
+  log = appendLog(appendLog([], fromBrowserUncertain(face)), fromBrowserUncertain({ ...face, t_ms: 20 }));
+  assert.equal(log.length, 1);
+  assert.equal(log[0].count, 2);
+  assert.equal(log[0].t_ms, 20);
+  assert.equal(log[0].reason, 'face-zone-without-entry · session reset');
+  log = appendLog(log, fromBrowserUncertain({ t_ms: 30, state: 'stale' }));
+  assert.equal(log.length, 2);
+  assert.equal(log[0].reason, 'stale-tracker-result · session reset');
+});

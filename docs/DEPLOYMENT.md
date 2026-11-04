@@ -6,11 +6,14 @@ Both paths use the same `Dockerfile`: FastAPI serves the built web app, `/api/*`
 | | Render (free) | Hugging Face Space |
 |---|---|---|
 | Builds from | this GitHub branch (`render.yaml`) | files uploaded by `scripts/deploy_space.py` |
-| Trained bundle + audio | downloaded at startup from a **private HF model repo** (`scripts/publish_model.py`) | same download, via Space variables/secrets (recommended); or uploaded with the code (private Space only) |
+| Trained bundle | downloaded at startup from a **private HF model repo** (`scripts/publish_model.py`) | same download, via Space variables/secrets (recommended); or uploaded with the code (private Space only) |
+| Speech audio | committed in `web/public/audio/`, built into the image | same |
 | Resources | 512 MB RAM, 0.1 CPU; sleeps after 15 min idle | 16 GB RAM, 2 vCPU (CPU basic); sleeps when idle |
 | Before judging | open the URL **a minute before** (spin-up) | open the URL ~10 minutes before |
 
-The trained bundle, `metrics.json` and generated audio are **never committed to GitHub**.
+The trained bundle and `metrics.json` are **never committed to GitHub**. Generated speech
+(`web/public/audio/`, about 200 KB, from `python -m scripts.generate_audio`) **is** committed, so
+every git-based build ships it; regenerate and commit it after any translation edit.
 
 ## Render (free)
 

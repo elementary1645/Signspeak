@@ -7,6 +7,7 @@ import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../li
 import { InfoIcon, ReplayIcon, SpeakerIcon } from '../lib/icons.jsx';
 import { Speaker, readAutoSpeak, saveAutoSpeak } from '../lib/speech.js';
 import { viewState, STATE_TEXT } from '../lib/translateState.js';
+import { appendLog, fromBrowserUncertain, fromPrediction } from '../lib/predictionLog.js';
 
 const TRANSPORT_TEXT = {
   idle: 'Not connected', connecting: 'Connecting…', ws: 'Live connection',
@@ -24,6 +25,7 @@ export default function Translate({ link }) {
   const [history, setHistory] = useState([]);
   const [announcement, setAnnouncement] = useState('');
   const [lastError, setLastError] = useState(null);
+  const [predictionLog, setPredictionLog] = useState([]); // local debug readout only
   const clientRef = useRef(null);
   const speakerRef = useRef(null);
   const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak);
@@ -61,6 +63,7 @@ export default function Translate({ link }) {
     setLastError(null);
     setBackendDown(false);
     setResult(message);
+    setPredictionLog(log => appendLog(log, fromPrediction(message)));
     if (typeof message.t_ms === 'number') setRtt(performance.now() - message.t_ms);
     if (message.event) {
       const meaning = meaningOf(translationsRef.current, message.event, langRef.current);
@@ -77,6 +80,7 @@ export default function Translate({ link }) {
     clientRef.current?.reset(details.t_ms);
     speakerRef.current?.stop();
     if (readyRef.current) setResult({ type: 'prediction', state: 'UNCERTAIN_HANDS', code: 'UNCERTAIN_HANDS', label: null });
+    if (readyRef.current) setPredictionLog(log => appendLog(log, fromBrowserUncertain(details)));
   }, []);
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
   const cam = useLandmarks({ onFrame, onUncertain, requiredFps: status?.ready ? status.model?.fps : null,
@@ -190,6 +194,33 @@ export default function Translate({ link }) {
               ))}
             </ul>
           ) : <p className="muted">Nothing recognised yet.</p>}
+
+          <details className="prediction-log">
+            <summary>Last {predictionLog.length} predictions (debug)</summary>
+            <p className="muted small">Shown in this browser only; not sent or saved. Newest first. A sign is shown
+              after 3 agreeing accepted predictions over at least 0.5 s; a browser reset restarts the 16-frame window.</p>
+            {predictionLog.length ? (
+              <div className="table-wrap">
+                <table className="table small" aria-label="Last predictions">
+                  <thead><tr><th scope="col">t (s)</th><th scope="col">From</th><th scope="col">State</th><th scope="col">Label</th>
+                    <th scope="col">Conf.</th><th scope="col">Margin</th><th scope="col">Reason</th></tr></thead>
+                  <tbody>
+                    {predictionLog.map((p, i) => (
+                      <tr key={i}>
+                        <td>{p.t_ms != null ? (p.t_ms / 1000).toFixed(2) : '–'}</td>
+                        <td>{p.source}{p.count > 1 ? ` ×${p.count}` : ''}</td>
+                        <td>{p.state}{p.event ? ' · emitted' : ''}</td>
+                        <td>{p.label || '–'}</td>
+                        <td>{p.confidence != null ? p.confidence.toFixed(3) : '–'}</td>
+                        <td>{p.margin != null ? p.margin.toFixed(3) : '–'}</td>
+                        <td>{p.reason || '–'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="muted small">No predictions yet.</p>}
+          </details>
         </section>
       </div>
 

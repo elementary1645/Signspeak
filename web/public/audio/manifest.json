@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "entries": {
+    "HELLO": {
+      "en": {
+        "file": "HELLO/en.mp3",
+        "text_sha256": "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
+        "text": "Hello",
+        "engine": "edge-tts",
+        "voice": "en-IN-NeerjaNeural"
+      },
+      "kn": {
+        "file": "HELLO/kn.mp3",
+        "text_sha256": "0280f7d60f5e2227d52d1deeb9df4f0cce320b7af830c459624b11446c66bb78",
+        "text": "ನಮಸ್ಕಾರ",
+        "engine": "edge-tts",
+        "voice": "kn-IN-SapnaNeural"
+      },
+      "hi": {
+        "file": "HELLO/hi.mp3",
+        "text_sha256": "ddb08d77c2d511947652161b35987022711aa216387b041dd459a03eb66a8304",
+        "text": "नमस्ते",
+        "engine": "edge-tts",
+        "voice": "hi-IN-SwaraNeural"
+      },
+      "ta": {
+        "file": "HELLO/ta.mp3",
+        "text_sha256": "b857c937e698a0f1318b75a31baa19c39cccab257edcf931e25d570cf477f296",
+        "text": "வணக்கம்",
+        "engine": "edge-tts",
+        "voice": "ta-IN-PallaviNeural"
+      }
+    },
+    "NO": {
+      "en": {
+        "file": "NO/en.mp3",
+        "text_sha256": "1ea442a134b2a184bd5d40104401f2a37fbc09ccf3f4bc9da161c6099be3691d",
+        "text": "No",
+        "engine": "edge-tts",
+        "voice": "en-IN-NeerjaNeural"
+      },
+      "kn": {
+        "file": "NO/kn.mp3",
+        "text_sha256": "6bd6fbd6e3bdf183c9887576a82f667afaef36585b13dba14260d4ca345408e0",
+        "text": "ಇಲ್ಲ",
+        "engine": "edge-tts",
+        "voice": "kn-IN-SapnaNeural"
+      },
+      "hi": {
+        "file": "NO/hi.mp3",
+        "text_sha256": "7f73843522890c327e3d522b2d0a110cccf9059321e0d5099fa86246a370689d",
+        "text": "नहीं",
+        "engine": "edge-tts",
+        "voice": "hi-IN-SwaraNeural"
+      },
+      "ta": {
+        "file": "NO/ta.mp3",
+        "text_sha256": "f9ca4f449e88df489c74d0a657613723b043861ec38d31436238a73bb69c1081",
+        "text": "இல்லை",
+        "engine": "edge-tts",
+        "voice": "ta-IN-PallaviNeural"
+      }
+    },
+    "THANK_YOU": {
+      "en": {
+        "file": "THANK_YOU/en.mp3",
+        "text_sha256": "268bc1833e83306f48ae6203eefb86e7a39dedb1d3d6df99c18ef70aa61ef84d",
+        "text": "Thank you",
+        "engine": "edge-tts",
+        "voice": "en-IN-NeerjaNeural"
+      },
+      "kn": {
+        "file": "THANK_YOU/kn.mp3",
+        "text_sha256": "3e42f57e89d51dc582cb1acfd735157da741a944537c14b09847928a3b0dd394",
+        "text": "ಧನ್ಯವಾದಗಳು",
+        "engine": "edge-tts",
+        "voice": "kn-IN-SapnaNeural"
+      },
+      "hi": {
+        "file": "THANK_YOU/hi.mp3",
+        "text_sha256": "45d944ea2c0504040c7b621126623ac51405c13556b42eb96fe580f5555406ae",
+        "text": "धन्यवाद",
+        "engine": "edge-tts",
+        "voice": "hi-IN-SwaraNeural"
+      },
+      "ta": {
+        "file": "THANK_YOU/ta.mp3",
+        "text_sha256": "ede3b004fbdda89e05b0b3114be88b34036cec21b064e61a44d43dbec2b0472a",
+        "text": "நன்றி",
+        "engine": "edge-tts",
+        "voice": "ta-IN-PallaviNeural"
+      }
+    },
+    "YES": {
+      "en": {
+        "file": "YES/en.mp3",
+        "text_sha256": "85a39ab345d672ff8ca9b9c6876f3adcacf45ee7c1e2dbd2408fd338bd55e07e",
+        "text": "Yes",
+        "engine": "edge-tts",
+        "voice": "en-IN-NeerjaNeural"
+      },
+      "kn": {
+        "file": "YES/kn.mp3",
+        "text_sha256": "599a12824d56a314024e39a2f89c8d2c73d70efe8df45db1d8fab56287e8a2de",
+        "text": "ಹೌದು",
+        "engine": "edge-tts",
+        "voice": "kn-IN-SapnaNeural"
+      },
+      "hi": {
+        "file": "YES/hi.mp3",
+        "text_sha256": "4a3daa901d0a9a1e593e2cc45889df2a1765d4a6f9f05461ac5a12ceb9ed0755",
+        "text": "हाँ",
+        "engine": "edge-tts",
+        "voice": "hi-IN-SwaraNeural"
+      },
+      "ta": {
+        "file": "YES/ta.mp3",
+        "text_sha256": "aa9456d7a26a0ca2ceafa7028ebd63dc819ef70c409e4b9079271aeee76585b4",
+        "text": "ஆம்",
+        "engine": "edge-tts",
+        "voice": "ta-IN-PallaviNeural"
+      }
+    }
+  }
+}
