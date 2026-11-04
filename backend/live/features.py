@@ -99,10 +99,10 @@ def assign_sides(frame):
     return slots, True
 
 
-def frame_vector(frame):
+def frame_vector(frame, *, assignment=None):
     """One validated lm-v1 frame -> FRAME_DIM vector."""
     v = np.zeros(FRAME_DIM)
-    slots, from_label = assign_sides(frame)
+    slots, from_label = assign_sides(frame) if assignment is None else assignment
     reference = body_frame(frame)
     for i, hand in enumerate(slots):
         if hand is None:
@@ -180,11 +180,11 @@ def _energy(x, mask):
     return np.abs(np.diff(x, axis=0)[pairs]).mean(axis=0)
 
 
-def summarize(window):
+def summarize(window, *, count=WINDOW):
     """WINDOW x FRAME_DIM -> SUMMARY_DIM fixed-length vector."""
     w = np.asarray(window, dtype=float)
-    if w.shape != (WINDOW, FRAME_DIM) or not np.isfinite(w).all():
-        raise ValueError(f'Expected finite window of shape {(WINDOW, FRAME_DIM)}')
+    if w.shape != (count, FRAME_DIM) or not np.isfinite(w).all():
+        raise ValueError(f'Expected finite window of shape {(count, FRAME_DIM)}')
     flags = w[:, FLAGS] > 0.5
     pose = flags[:, 2]
     shape_stats, loc_stats, shape_energy, loc_energy = [], [], [], []
@@ -224,3 +224,14 @@ def mirror_frame(frame):
 
 def mirror(frames):
     return [mirror_frame(f) for f in frames]
+
+
+def for_schema(schema):
+    """Explicit version dispatch; an equal feature dimension never implies compatibility."""
+    if schema == SCHEMA:
+        import sys
+        return sys.modules[__name__]
+    if schema == 'hp-v2-8fps':
+        from . import features8
+        return features8
+    raise ValueError(f'Unsupported feature schema: {schema}')

@@ -18,6 +18,8 @@ export class RecognizerClient {
     this.buffer = [];
     this.inFlight = false;
     this.stopped = true;
+    this.epoch = 0;
+    this.ignoreBefore = -Infinity;
   }
 
   setMode(mode, detail) {
@@ -45,7 +47,9 @@ export class RecognizerClient {
     this.ws = ws;
     ws.onopen = () => { opened = true; this.retries = 0; this.setMode('ws'); };
     ws.onmessage = event => {
-      try { this.onMessage?.(JSON.parse(event.data)); } catch { /* ignore malformed server message */ }
+      if (this.ws !== ws || this.stopped) return;
+      try { const message = JSON.parse(event.data);
+        if (message.type !== 'prediction' || (this.ignoreBefore === -Infinity || message.t_ms > this.ignoreBefore)) this.onMessage?.(message); } catch { /* ignore malformed server message */ }
     };
     ws.onclose = event => {
       if (this.ws !== ws || this.stopped) return;
@@ -77,19 +81,33 @@ export class RecognizerClient {
     // While connecting/reconnecting frames are dropped: the server buffer refills in ~1.6 s.
   }
 
+  reset(timestamp) {
+    this.epoch++;
+    this.ignoreBefore = Math.max(this.ignoreBefore, timestamp);
+    this.buffer = [];
+    this.httpReset = true;
+    if (this.mode === 'ws' && this.ws?.readyState === 1) this.ws.send(JSON.stringify({ type: 'reset' }));
+  }
+
   async flush() {
+    const epoch = this.epoch;
+    const reset = !!this.httpReset;
+    this.httpReset = false;
     const frames = this.buffer.splice(0, this.buffer.length);
     this.inFlight = true;
     try {
       const r = await this.fetchImpl('/api/predict', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stream_id: this.streamId, frames }),
+        body: JSON.stringify({ stream_id: this.streamId, frames, reset }),
       });
       const body = await r.json();
+      if (epoch !== this.epoch || this.stopped) return;
       if (!r.ok) this.onMessage?.({ type: 'error', code: body.code || `HTTP_${r.status}`, detail: body.detail });
-      else body.replies.forEach(reply => this.onMessage?.(reply));
+      else body.replies.forEach(reply => {
+        if (reply.type !== 'prediction' || (this.ignoreBefore === -Infinity || reply.t_ms > this.ignoreBefore)) this.onMessage?.(reply);
+      });
     } catch (err) {
-      this.onMessage?.({ type: 'error', code: 'NETWORK', detail: err.message });
+      if (epoch === this.epoch && !this.stopped) this.onMessage?.({ type: 'error', code: 'NETWORK', detail: err.message });
     } finally {
       this.inFlight = false;
     }

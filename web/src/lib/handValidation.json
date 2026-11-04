@@ -1,0 +1,22 @@
+{
+  "policy": "hand-evidence-v3",
+  "minPoseVisibility": 0.5,
+  "minShoulderWidthFraction": 0.03,
+  "maxWristDistanceShoulders": 0.5,
+  "minArmSegmentShoulders": 0.05,
+  "maxArmSegmentShoulders": 2.5,
+  "minHandDetectionConfidence": 0.5,
+  "minHandPresenceConfidence": 0.5,
+  "minTrackingConfidence": 0.5,
+  "maxResultAgeMs": 400,
+  "minFallbackHandednessScore": 0.8,
+  "faceRadiusShoulders": 0.5,
+  "minPalmPixels": 3,
+  "minPalmAreaRatio": 0.005,
+  "identityConflictShoulders": 0.5,
+  "poseCoordinateMargin": 0.5,
+  "faceEntryWindowMs": 1500,
+  "maxTrackGapMs": 300,
+  "maxTrackStepShoulders": 0.6,
+  "maxPalmScaleRatio": 1.6
+}

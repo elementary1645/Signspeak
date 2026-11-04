@@ -1,8 +1,11 @@
+import PROTOCOLS from './captureProtocols.json' with { type: 'json' };
+export { PROTOCOLS };
+export const DEFAULT_PROTOCOL = 'hp-v2-8fps-timed-1';
 // Pure capture logic for /collect (unit-tested in web/tests).
-export const CAPTURE_MIN_FRAMES = 26;  // stop as soon as this many raw frames arrived...
-export const CAPTURE_MAX_MS = 3000;    // ...or after this long, whichever comes first
-export const LOW_FPS = 12;
-export const MIN_FRAMES = 15;          // server rejects shorter takes (backend/live/takes.py)
+export const CAPTURE_MIN_FRAMES = 26;  // small margin beyond the 24-frame hp-v1 window
+export const CAPTURE_MAX_MS = 3000;    // deadline for rejecting a stalled/slow recording
+export const LOW_FPS = 14;
+export const MIN_FRAMES = 24;          // minimum for new hp-v1 timed captures
 export const MIN_SPAN_MS = 1380;
 
 // Rolling frames-per-second over the last ~1 s of frame timestamps.
@@ -20,8 +23,9 @@ export class FpsMeter {
   }
 }
 
-export function captureDone(frames, startMs, nowMs) {
-  return frames.length >= CAPTURE_MIN_FRAMES || nowMs - startMs >= CAPTURE_MAX_MS;
+export function captureDone(frames, startMs, nowMs, protocol = 'hp-v1-timed-1') {
+  const p = PROTOCOLS[protocol];
+  return !!p && (frames.length >= p.captureFrames || nowMs - startMs >= p.deadlineMs);
 }
 
 export function measuredFps(frames) {
@@ -30,19 +34,31 @@ export function measuredFps(frames) {
   return span > 0 ? ((frames.length - 1) * 1000) / span : 0;
 }
 
-export function takeVerdict(frames) {
+export function takeVerdict(frames, protocol = 'hp-v1-timed-1') {
+  const p = PROTOCOLS[protocol];
   const fps = measuredFps(frames);
-  const span = frames.length > 1 ? frames[frames.length - 1].t_ms - frames[0].t_ms : 0;
+  const span = frames.length > 1 ? frames.at(-1).t_ms - frames[0].t_ms : 0;
+  const gaps = frames.slice(1).map((f, i) => f.t_ms - frames[i].t_ms);
+  const tolerance = p?.timestampToleranceMs ?? 0;
+  const rateOk = !!p && span >= (frames.length - 1) * 1000 / p.maxFps - tolerance
+    && span <= (frames.length - 1) * 1000 / p.minFps + tolerance;
   return {
-    fps,
-    lowFps: fps < LOW_FPS,
-    valid: frames.length >= MIN_FRAMES && span >= MIN_SPAN_MS,
+    fps, span, maxGap: Math.max(0, ...gaps), lowFps: !p || fps < p.minFps,
+    valid: !!p && frames.length >= p.minFrames && frames.length <= p.maxFrames
+      && span >= p.minSpanMs && span <= p.maxSpanMs && rateOk
+      && frames.every(f => Number.isFinite(f.t_ms) && f.t_ms >= 0)
+      && gaps.every(g => g > 0 && g >= p.minGapMs && g <= p.maxGapMs),
   };
 }
 
+export function timingInstructions(protocol) {
+  const p = PROTOCOLS[protocol];
+  return `${p.minFrames === p.maxFrames ? 'Exactly' : 'At least'} ${p.minFrames} distinct frames, ${p.minFps}–${p.maxFps} effective FPS, span ${(p.minSpanMs / 1000).toFixed(2)}–${(p.maxSpanMs / 1000).toFixed(2)} s, gaps ${p.minGapMs}–${p.maxGapMs} ms.`;
+}
+
 // Per-signer completion summary: is this person done before they leave?
-export function sessionSummary(takes, signer, session, labels, targets, noneLabel) {
-  const mine = takes.filter(t => t.signer_id === signer);
+export function sessionSummary(takes, signer, session, labels, targets, noneLabel, protocol = null) {
+  const mine = takes.filter(t => t.signer_id === signer && (!protocol || t.capture_protocol === protocol));
   const rows = labels.map(label => {
     const all = mine.filter(t => t.label === label);
     const target = label === noneLabel ? targets.none : targets.per_sign;

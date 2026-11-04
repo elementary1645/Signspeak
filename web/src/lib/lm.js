@@ -1,3 +1,4 @@
+import { acceptedSides } from './handValidation.js';
 // lm-v1 wire format: raw landmarks only, never pixels. The Python server owns all
 // feature engineering (backend/live/features.py), so nothing here affects the model.
 export const FRAME_SCHEMA = 'lm-v1';
@@ -26,16 +27,7 @@ export function toFrame(tMs, handResult, poseResult, w, h) {
 // Display-only side guess (subject left/right) by nearest pose wrist, mirroring the
 // server's rule: pose 15 = subject left wrist, 16 = subject right wrist.
 export function displaySides(frame) {
-  if (!frame.pose) return frame.hands.map(() => '?');
-  const wrists = [frame.pose[15], frame.pose[16]];
-  const d = (a, b) => Math.hypot((a[0] - b[0]) * frame.w, (a[1] - b[1]) * frame.h);
-  if (frame.hands.length === 2) {
-    const [a, b] = frame.hands.map(hand => hand.landmarks[0]);
-    const straight = d(a, wrists[0]) + d(b, wrists[1]);
-    const crossed = d(a, wrists[1]) + d(b, wrists[0]);
-    return straight <= crossed ? ['L', 'R'] : ['R', 'L'];
-  }
-  return frame.hands.map(hand => (d(hand.landmarks[0], wrists[0]) <= d(hand.landmarks[0], wrists[1]) ? 'L' : 'R'));
+  return acceptedSides(frame);
 }
 
 export function frameQuality(frames) {
@@ -75,4 +67,21 @@ export function drawOverlay(ctx, frame) {
     ctx.fillStyle = color;
     for (const p of hand.landmarks) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, 3, 0, Math.PI * 2); ctx.fill(); }
   });
+}
+
+
+// Uncertain candidates are a clearly separate preview, never part of the accepted frame.
+export function drawUncertainOverlay(ctx, candidates) {
+  ctx.save();
+  ctx.strokeStyle = '#eab308'; ctx.fillStyle = '#eab308'; ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
+  for (const candidate of candidates || []) {
+    if (candidate.status !== 'uncertain') continue;
+    const pts = candidate.landmarks;
+    for (const [a, b] of HAND_EDGES) {
+      ctx.beginPath(); ctx.moveTo(pts[a][0] * ctx.canvas.width, pts[a][1] * ctx.canvas.height);
+      ctx.lineTo(pts[b][0] * ctx.canvas.width, pts[b][1] * ctx.canvas.height); ctx.stroke();
+    }
+  }
+  ctx.restore();
 }

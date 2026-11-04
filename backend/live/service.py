@@ -1,7 +1,7 @@
 """Live recognition: WebSocket /ws/recognize, POST /api/predict fallback, /ready.
 
-Both transports share one contract. The client sends lm-v1 frames (~15 fps); the server
-keeps a per-connection buffer, predicts every 3rd frame on the latest 24-frame window and
+Both transports share one contract. The client sends lm-v1 frames at the loaded model's
+rate; the server predicts every 3rd frame on that version's temporal window and
 replies with a state message. With no compatible model it says so and never guesses.
 
 States: INITIALIZING, READY, DETECTING, RECOGNIZING, RECOGNIZED, UNKNOWN, NO_HAND, ERROR.
@@ -19,6 +19,7 @@ from backend.app.recognition import Stabilizer
 from . import features, vocab
 from .model import LiveModel, model_path
 from .protocol import validate_frame
+from .hand_validation import HandEvidenceTracker
 
 
 
@@ -79,7 +80,7 @@ class LiveService:
             if not ready:
                 code, detail = 'MODEL_INCOMPATIBLE', 'Vocabulary changed since training; retrain and restart'
         return {'ready': ready, 'code': None if ready else code, 'detail': None if ready else detail,
-                'model': self.model.info() if ready else None, 'schema': features.SCHEMA}
+                'model': self.model.info() if ready else None, 'schema': self.model.features.SCHEMA if ready else features.SCHEMA}
 
 
 class RateLimiter:
@@ -103,7 +104,12 @@ class Session:
         self.service = service
         self.frames = deque()
         self.vectors = deque()  # frame_vector() of each buffered frame, computed once on arrival
+        self.assessments = deque()  # hp-v2-8fps: tracker verdict of each buffered frame
+        # Face-entry history survives buffer resets (uncertain frames, client 'reset' messages),
+        # like the browser's tracker; it restarts only with a new session or a clock jump.
+        self.hands = HandEvidenceTracker()
         self.count = 0
+        self.temporal = None
         self.stabilizer = Stabilizer()
         self.limiter = RateLimiter()
         self.touched = time.monotonic()
@@ -111,6 +117,7 @@ class Session:
     def reset(self):
         self.frames.clear()
         self.vectors.clear()
+        self.assessments.clear()
         self.count = 0
         self.stabilizer = Stabilizer()
 
@@ -119,13 +126,37 @@ class Session:
         started = time.perf_counter()
         self.touched = time.monotonic()
         frame = validate_frame(raw)
+        temporal = getattr(self.service.model, 'features', features)
+        if self.temporal is not temporal:
+            self.reset()  # never reuse cached vectors across a feature/observation-policy module change
+            self.temporal = temporal
+        assessment = None
+        if temporal.SCHEMA == 'hp-v2-8fps':
+            assessment = self.hands.assess(frame)
+            if not assessment['recordable']:
+                self.reset()  # uncertainty is not a no-hand frame or a classifier input
+                status = self.service.status()
+                return {'type': 'prediction', 'state': 'UNCERTAIN_HANDS' if status['ready'] else 'ERROR',
+                        'code': 'UNCERTAIN_HANDS' if status['ready'] else status['code'],
+                        'detail': 'Hand candidates are uncertain; no recognition or recording for this observation'
+                                  if status['ready'] else status['detail'],
+                        'label': None, 'confidence': None, 'margin': None, 'event': None,
+                        'model_ready': status['ready'], 't_ms': frame['t_ms'],
+                        'latency_ms': {'model': None, 'server': (time.perf_counter() - started) * 1000}}
+            frame = assessment['frame']
         if self.frames and frame['t_ms'] <= self.frames[-1]['t_ms']:
             self.reset()  # camera restarted or clock jumped: start a fresh buffer
         self.frames.append(frame)
-        self.vectors.append(features.frame_vector(frame))
+        if assessment is None:
+            self.vectors.append(temporal.frame_vector(frame))
+        else:
+            self.assessments.append(assessment)
+            self.vectors.append(temporal.assessed_vector(assessment))
         while self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] > BUFFER_MS:
             self.frames.popleft()
             self.vectors.popleft()
+            if self.assessments:
+                self.assessments.popleft()
         self.count += 1
         if self.count % PREDICT_EVERY:
             return None
@@ -145,9 +176,19 @@ class Session:
         if not any(f['hands'] for f in recent):
             self.stabilizer.update({'state': 'no_hand', 'label': None}, now)
             return dict(base, state='NO_HAND')
-        window = features.latest_window(list(self.frames), list(self.vectors))
+        temporal = getattr(self.service.model, 'features', features)
+        try:
+            if self.assessments:
+                window = temporal.latest_window(list(self.frames), list(self.vectors), list(self.assessments))
+            else:
+                window = temporal.latest_window(list(self.frames), list(self.vectors))
+        except ValueError:
+            self.stabilizer.update({'state': 'detecting', 'label': None}, now)
+            return dict(base, state='DETECTING', code='INSUFFICIENT_TIMING',
+                        detail='Need 16 distinct frames at 7–9.5 FPS, span 1.55–2.20 s, gaps 80–190 ms. Check tracking settings.')
         hand_rate = (window[:, 148:150].max(axis=1) > 0.5).mean()
-        if self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] < 0.9 * (features.WINDOW - 1) * features.PERIOD_MS \
+        if (temporal.SCHEMA == features.SCHEMA
+                and self.frames[-1]['t_ms'] - self.frames[0]['t_ms'] < 0.9 * (temporal.WINDOW - 1) * temporal.PERIOD_MS) \
                 or hand_rate < MIN_HAND_RATE:
             self.stabilizer.update({'state': 'detecting', 'label': None}, now)
             return dict(base, state='DETECTING')
@@ -160,7 +201,8 @@ class Session:
                                       'confidence': p['confidence']}, now)
         base.update(confidence=p['confidence'], margin=p['margin'], latency_ms={'model': p['model_latency_ms']})
         if p['label'] is None:  # NONE won or below thresholds: never displayed
-            return dict(base, state='UNKNOWN', detail='not a known sign' if p['reason'] == 'none' else 'low confidence')
+            return dict(base, state='UNKNOWN', top_label=p['top_label'], top_confidence=p['confidence'],  # diagnostics only
+                        detail='not a known sign' if p['reason'] == 'none' else 'low confidence')
         return dict(base, state='RECOGNIZED' if out['stable'] else 'RECOGNIZING', label=p['label'], event=out['event'])
 
 

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from backend.app import dataset, main
-from backend.app.vocabulary import verified_entries
+from backend.app.vocabulary import check_reference_url, verified_entries
 from backend.live import api, features as F, service, vocab
 from backend.live.model import LiveModel, decide
 from backend.live.protocol import validate_frame, validate_frames
@@ -184,14 +184,37 @@ def test_hands_v1_gate_ignores_hp_v1_entries(registry):
     assert dataset.vocabulary() == {}
 
 
-def test_real_registry_has_only_unverified_candidates():
+REAL_VERIFIED = {'HELLO', 'YES', 'NO'}  # THANK_YOU revoked 2026-11-04: perfect offline, failed live
+
+
+def test_real_registry_verifies_exactly_hello_yes_no():
     entries = json.loads((dataset.ROOT / 'data/metadata/vocabulary.json').read_text(encoding='utf-8'))
-    assert entries and all(e['verified'] is False for e in entries)
-    assert vocab.verified(entries) == {}
+    assert entries
+    assert {e['label'] for e in entries if e['verified'] is True} == REAL_VERIFIED
+    assert all(e['verified'] is False for e in entries if e['label'] not in REAL_VERIFIED)
+    admitted = vocab.verified(entries)
+    assert set(admitted) == REAL_VERIFIED
+    for e in entries:
+        if e['label'] in REAL_VERIFIED:
+            review = vocab.LiveSignReview.model_validate(e)  # raises if any human answer is missing
+            assert review.official_source_confirmed is True and review.human_inspected is True
+            check_reference_url(review.reference_url)  # one exact official entry, not an index/channel
+            assert admitted[e['label']]['reference_url'] == e['reference_url']
+    assert verified_entries(entries) == {}  # hands-v1 gate still ignores hp-v1 entries
     translations = json.loads((dataset.ROOT / 'data/metadata/translations.json').read_text(encoding='utf-8'))
     for e in entries:
         t = translations[e['label']]
         assert set(t) == {'en', 'kn', 'hi', 'ta', 'needs_native_check'} and t['needs_native_check'] is True
+
+
+
+def test_thank_you_is_revoked_and_unlisted():
+    entries = json.loads((dataset.ROOT / 'data/metadata/vocabulary.json').read_text(encoding='utf-8'))
+    thank_you = next(e for e in entries if e['label'] == 'THANK_YOU')
+    assert thank_you['verified'] is False and thank_you['reference_url'] == '' and thank_you['reference_id'] == ''
+    assert 'THANK_YOU' not in {c['label'] for c in vocab.collectable(entries)}  # /collect
+    audio = json.loads((dataset.ROOT / 'web/public/audio/manifest.json').read_text(encoding='utf-8'))
+    assert set(audio['entries']) == REAL_VERIFIED
 
 
 def test_verify_sign_link_approve_revoke(registry):
@@ -225,6 +248,19 @@ def test_take_validation(registry):
                 dict(t, frames=t['frames'][:16])):
         with pytest.raises(ValueError):
             validate_take(bad)
+
+
+def test_none_prompts_hold_and_reach_added_and_old_ids_still_valid(no_model):
+    from backend.live.takes import NONE_PROMPT_IDS
+    old = {'rest', 'scratch', 'adjust', 'random', 'half', 'transition', 'chat', 'phone'}
+    assert old | {'hold', 'reach'} == NONE_PROMPT_IDS
+    for prompt in sorted(NONE_PROMPT_IDS):  # every prompt, old and new, validates on a NONE take
+        meta, _ = validate_take(dict(X.take('NONE', 'synthA', kind='still'), none_prompt=prompt))
+        assert meta['none_prompt'] == prompt
+    served = {p['id']: p['text'] for p in no_model.get('/api/config').json()['none_prompts']}
+    assert set(served) == NONE_PROMPT_IDS
+    assert served['hold'].startswith('Raise your hand beside your shoulder and hold it still')
+    assert served['reach'] == 'Hold your hand out in front of you and move it slowly, no sign.'
 
 
 def test_merge_rejects_duplicates_and_malformed(tmp_path):
@@ -286,6 +322,50 @@ def test_training_with_few_signers_warns_generalisation_not_measured(registry, t
     assert m['generalisation_to_unseen_signers_measured'] is False and m['scheme'].startswith('grouped-by')
     assert any('NOT measured' in line for line in logged)
     assert m['held_out_sign_rejection'] == 'needs >= 2 verified signs'
+
+
+def test_threshold_source_loso_tunes_on_cross_signer_predictions(registry, tmp_path):
+    """Two signers: loso changes only the deployed thresholds, tuned on leave-one-signer-out predictions."""
+    from backend.live import train as T
+    path = write_takes(tmp_path / 'takes.jsonl', synthetic_takes(signers=('synthA', 'synthB'), per=4))
+    quiet = dict(candidates=('logistic_regression',), log=lambda *_: None)
+    _, grouped = train(path, tmp_path / 'g', model_card=None, **quiet)
+    bundle, loso = train(path, tmp_path / 'l', model_card=tmp_path / 'CARD.md', threshold_source='loso', **quiet)
+    assert grouped['scheme'].startswith('grouped-by') and loso['scheme'] == grouped['scheme']
+    assert grouped['threshold_source'] == {'requested': 'grouped', 'tuned_on': grouped['scheme'],
+                                           'grouped_thresholds': grouped['thresholds']}
+    # Recompute independently: each signer predicted by a model trained on the other signer only.
+    data = T.build_windows(T.load_takes(path))
+    labels = [*SIGNS, 'NONE']
+    p = np.full((len(data['y']), len(labels)), np.nan)
+    for signer in ('synthA', 'synthB'):
+        tr, te = data['signer'] != signer, data['signer'] == signer
+        model = T.CANDIDATES['logistic_regression']().fit(data['x'][tr], data['y'][tr])
+        p[te] = T.aligned_proba(model, data['x'][te], labels)
+    expected = T.tune(p, data['y'], labels)
+    assert bundle['thresholds'] == loso['thresholds'] == expected
+    assert bundle['threshold_source'] == {'requested': 'loso', 'tuned_on': 'leave-one-signer-out'}
+    source = loso['threshold_source']
+    assert source['grouped_thresholds'] == grouped['thresholds'] and source['loso']['caveat'] == T.LOSO_CAVEAT
+    assert set(source['loso']['per_signer']) == {'synthA', 'synthB'}
+    assert source['loso']['pooled']['windows'] == sum(r['windows'] for r in source['loso']['per_signer'].values())
+    # The reported (grouped) evaluation is unchanged; only the deployed thresholds moved.
+    assert loso['open_set_with_rejection'] == grouped['open_set_with_rejection']
+    saved = json.loads((tmp_path / 'l/metrics.json').read_text())
+    assert saved['bundle']['threshold_source']['tuned_on'] == 'leave-one-signer-out'
+    assert saved['metrics']['threshold_source']['loso']['thresholds'] == expected
+    LiveModel(tmp_path / 'l/model.joblib', vocab.verified())  # the server accepts the bundle
+    card = (tmp_path / 'CARD.md').read_text(encoding='utf-8')
+    assert '`--threshold-source loso`' in card and 'leave-one-signer-out' in card and T.LOSO_CAVEAT in card
+
+
+def test_threshold_source_loso_needs_two_signers_and_valid_choice(registry, tmp_path):
+    path = write_takes(tmp_path / 'takes.jsonl', synthetic_takes(signers=('synthA',), per=4))
+    quiet = dict(candidates=('logistic_regression',), model_card=None, log=lambda *_: None)
+    with pytest.raises(TrainingError, match='at least 2 signers'):
+        train(path, tmp_path / 'm', threshold_source='loso', **quiet)
+    with pytest.raises(TrainingError, match='Unknown threshold source'):
+        train(path, tmp_path / 'm', threshold_source='same-person', **quiet)
 
 
 def test_decide_never_returns_none_class():

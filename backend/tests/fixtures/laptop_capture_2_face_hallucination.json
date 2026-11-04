@@ -1,0 +1,228 @@
+{
+  "policy": "hand-evidence-v2",
+  "poseShoulders": [
+    [
+      0.74628,
+      0.98393,
+      -0.50763,
+      0.98874
+    ],
+    [
+      0.3442,
+      1.04712,
+      -0.57281,
+      0.99243
+    ]
+  ],
+  "poseNose": [
+    0.55539,
+    0.75939,
+    -1.24069,
+    0.99926
+  ],
+  "minPoseVisibility": 0.5,
+  "rawCount": 1,
+  "acceptedCount": 0,
+  "uncertainCount": 1,
+  "rejectedCount": 0,
+  "state": "uncertain",
+  "recordable": false,
+  "raw": [
+    {
+      "index": 0,
+      "handedness": "Left",
+      "handednessScore": 0.9116,
+      "handWrist": [
+        0.4329,
+        0.80781,
+        0
+      ],
+      "handWristPixels": [
+        277.056,
+        387.7488
+      ],
+      "landmarks": [
+        [
+          0.4329,
+          0.80781,
+          0
+        ],
+        [
+          0.45706,
+          0.84,
+          -0.02563
+        ],
+        [
+          0.49025,
+          0.8471,
+          -0.04319
+        ],
+        [
+          0.52233,
+          0.83476,
+          -0.05649
+        ],
+        [
+          0.55454,
+          0.82729,
+          -0.06852
+        ],
+        [
+          0.48587,
+          0.79465,
+          -0.03939
+        ],
+        [
+          0.52223,
+          0.77992,
+          -0.05656
+        ],
+        [
+          0.53922,
+          0.78207,
+          -0.06529
+        ],
+        [
+          0.55038,
+          0.78478,
+          -0.07017
+        ],
+        [
+          0.4758,
+          0.75719,
+          -0.03231
+        ],
+        [
+          0.51582,
+          0.74353,
+          -0.04678
+        ],
+        [
+          0.52798,
+          0.74897,
+          -0.05042
+        ],
+        [
+          0.53425,
+          0.7527,
+          -0.05254
+        ],
+        [
+          0.46614,
+          0.72945,
+          -0.0268
+        ],
+        [
+          0.50342,
+          0.71169,
+          -0.03987
+        ],
+        [
+          0.51324,
+          0.71535,
+          -0.04022
+        ],
+        [
+          0.51813,
+          0.71852,
+          -0.03957
+        ],
+        [
+          0.45624,
+          0.71048,
+          -0.02285
+        ],
+        [
+          0.48253,
+          0.68689,
+          -0.0324
+        ],
+        [
+          0.49346,
+          0.68334,
+          -0.03309
+        ],
+        [
+          0.49974,
+          0.6841,
+          -0.03276
+        ]
+      ],
+      "poseWrists": [
+        {
+          "side": "L",
+          "coordinates": [
+            0.84907,
+            1.54124,
+            -0.99736,
+            0.31019
+          ],
+          "visibility": 0.31019,
+          "distancePixels": 441.45028147504894,
+          "distanceShoulders": null,
+          "armPlausible": false,
+          "reliable": false,
+          "supported": false
+        },
+        {
+          "side": "R",
+          "coordinates": [
+            0.32019,
+            1.65995,
+            -1.38924,
+            0.38799
+          ],
+          "visibility": 0.38799,
+          "distancePixels": 415.3391650244412,
+          "distanceShoulders": null,
+          "armPlausible": false,
+          "reliable": false,
+          "supported": false
+        }
+      ],
+      "shoulderScalePixels": null,
+      "palmPixels": 42.092772875162304,
+      "shapePlausible": true,
+      "faceKnown": false,
+      "nearFace": false,
+      "legacySide": "R",
+      "legacyReason": "unreliable-shoulders",
+      "status": "uncertain",
+      "reason": "face-reference-unavailable",
+      "side": "?",
+      "sideSource": null,
+      "accepted": false
+    }
+  ],
+  "poseElbows": [
+    [
+      0.83105,
+      1.3015,
+      -0.53133,
+      0.41457
+    ],
+    [
+      0.29614,
+      1.47277,
+      -0.79541,
+      0.52049
+    ]
+  ],
+  "t_ms": 80664,
+  "sourceTimestamp": 80664.47,
+  "workerTimestamps": {
+    "hand": 80664.47,
+    "pose": 80664.47
+  },
+  "resultAgeMs": 75.60000002384186,
+  "input": {
+    "width": 640,
+    "height": 480
+  },
+  "detectorThresholds": {
+    "detection": 0.5,
+    "presence": 0.5,
+    "tracking": 0.5
+  },
+  "presenceConfidence": null
+}

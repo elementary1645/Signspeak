@@ -1,32 +1,229 @@
-# SignSpeak hp-v1 live recognizer: model card
+# SignSpeak live recognizer: model card
 
 **Intended use.** A hackathon prototype that recognises a small, human-verified set of
 Indian Sign Language (ISL) signs from webcam landmarks and shows their meaning in English,
 Kannada, Hindi or Tamil. It is not a translator, and it must not be used for medical,
 emergency or legal communication.
 
-**Inputs.** Browser MediaPipe hand (up to 2) and upper-body pose landmarks at about 15 fps
-(lm-v1). No images. Features: hp-v1 window summaries over 1.6 s (see `docs/data_schema.md`).
+**Inputs.** Browser MediaPipe hand (up to 2) and upper-body pose landmarks (lm-v1).
+No images. New collection uses hp-v2-8fps: 16 actual frames at nominal 8 FPS over about
+2 seconds. The original hp-v1 representation remains available: a 24-frame 15 FPS grid
+over about 1.6 seconds. Models declare one feature/capture version and cannot be
+interchanged. See `docs/data_schema.md` and `docs/PHASE3_LOWER_FPS_PROTOCOL.md`.
 
 **Model.** A CPU scikit-learn classifier, chosen from RandomForest, ExtraTrees,
 LogisticRegression and RBF-SVM by grouped out-of-fold macro-F1. A reserved NONE class
 (rest, idle, transitions, random movement) is trained with the signs. A prediction is
-shown only if NONE does not win and confidence and margin pass thresholds tuned on
-validation folds.
+shown only if NONE does not win and confidence and margin pass tuned thresholds. With
+fewer than 3 signers the deployed thresholds are tuned on pooled leave-one-signer-out
+predictions (`--threshold-source loso`), otherwise on validation folds.
 
 **Data.** Only takes recorded on `/collect` by consenting, pseudonymous signers, for signs
 a human verified against an exact official ISLRTC reference. No external dataset is used.
 
 **Known limitations.**
 - No face landmarks, so signs that need facial grammar or mouthing are excluded.
+- Three signs (HELLO, YES, NO) from 2 signers; THANK_YOU was withdrawn after failing live
+  (see run #4 below).
 - A small vocabulary with few signers: expect errors with new people, lighting, cameras
   and backgrounds. Any unfamiliar movement can still be confidently misread as a sign.
-- Accuracy is only known for unseen signers when at least 3 signers were collected
-  (leave-one-signer-out). Otherwise the section below says it was NOT measured.
+- The trainer measures unseen-signer accuracy only with at least 3 signers
+  (leave-one-signer-out). With 2 signers it groups folds by take (or by
+  signer/session once there are 3 or more sessions), so the same people are in train and
+  test and its numbers overstate accuracy for new people. For training run #1 a separate
+  2-fold leave-one-signer-out check was run; see the section after the trainer's block.
 - The kn/hi/ta meanings were drafted by an AI assistant and need native-speaker checks.
+- Phones are not supported yet: on one iPhone the browser tracker took about 267 ms per
+  inference and never reached the 7 FPS minimum (see README).
 
 <!-- AUTO:BEGIN (written by python -m backend.live.train; do not edit by hand) -->
 ## Latest trained model
 
-No model has been trained yet. No metrics exist.
+- Trained: 2026-11-04T11:12:46+00:00 · algorithm **svm_rbf** · scikit-learn 1.9.1
+- Data: 136 takes, 2 signers, 2 sessions, 136 windows · dataset sha256 `bd49407bb3e78bb2…`
+- Features: hp-v2-8fps · capture protocol hp-v2-8fps-timed-1 · 16 frames at 8 FPS
+- Labels: HELLO, NO, NONE, YES
+- Evaluation: **grouped-by-take** · **generalisation to unseen signers NOT measured**
+- Model comparison (closed-set macro-F1): random_forest 0.965, extra_trees 0.986, logistic_regression 0.944, svm_rbf 0.957
+- Thresholds: min_confidence 0.6, min_margin 0.3 · tuned on **leave-one-signer-out** out-of-fold predictions (`--threshold-source loso`) (grouped folds would have chosen 0.65 / 0.3)
+- Pooled leave-one-signer-out check of these thresholds: signer01 macro-F1 0.8838, NONE false-accept 7/48, signs rejected 3/48; signer02 macro-F1 0.9186, NONE false-accept 0/16, signs rejected 2/24; pooled macro-F1 0.8946, NONE false-accept 7/64, signs rejected 5/72. **Thresholds were tuned and scored on the same pooled predictions: no independent test remains.**
+- Live cost per window (features + model, single-threaded, training machine): random_forest 16.3 ms, extra_trees 16.1 ms, logistic_regression 4.4 ms, svm_rbf 5.6 ms; limit 10.0 ms; excluded random_forest, extra_trees
+- Open-set macro-F1 (with rejection, thresholds tuned without the evaluated fold): 0.950
+- NONE false-accept rate: 4.7% · sign rejection rate: 5.6%
+- Held-out-sign check (model trained without the sign): HELLO: 100% rejected, NO: 75% rejected, YES: 83% rejected
+
+| Label | Precision | Recall | F1 | Windows |
+|---|---|---|---|---|
+| HELLO | 1.00 | 0.92 | 0.96 | 24 |
+| NO | 0.92 | 0.92 | 0.92 | 24 |
+| YES | 0.96 | 1.00 | 0.98 | 24 |
+| NONE | 0.94 | 0.95 | 0.95 | 64 |
 <!-- AUTO:END -->
+
+## Leave-one-signer-out checks (hand-written, 4 November 2026)
+
+This section is **not** regenerated by the trainer. The deployed bundle is **run #4**:
+labels HELLO, NO, YES, NONE, trained 2026-11-04T11:12:46+00:00. Run #4 uses the same
+takes file as run #3 (dataset sha256 `bd49407bb3e78bb2…`), so the hash alone does not tell
+them apart; check the labels and training time in the block above. The run #3, run #2
+(`c7bfbc6bde38e0f2…`) and run #1 (`3dbd0f4983d2bfdf…`) details below are kept for comparison.
+
+### Run #4: THANK_YOU withdrawn, 3 signs
+
+**Why.** THANK_YOU was perfect offline: 24/24 recall and precision in every
+leave-one-signer-out fold of runs #2 and #3. It **failed repeatedly in live use**. It is
+the only sign that ends in the face zone (hand moves away from the chin). The live
+cause was not isolated, and the offline result did not predict it. The approval was revoked
+(`python -m scripts.verify_sign THANK_YOU --revoke`, approved by the project owner), and
+its `reference_url`/`reference_id` were cleared, so `/collect` no longer offers it and
+`/learn` lists it only under "Not supported yet". Its 24 takes stay on disk, unedited.
+The trainer leaves them out (`--drop-unverified`).
+
+**Data.** 136 of the 160 run #3 takes: signer01 HELLO, YES, NO 16 each and NONE 48;
+signer02 8 each and NONE 16. **Deployed bundle:** svm_rbf, thresholds min_confidence 0.6
+and min_margin 0.3 (`--threshold-source loso`; grouped folds would pick 0.65 / 0.3).
+
+Leave-one-signer-out with the same method as before (algorithm and thresholds chosen on
+the training signer only). Exact fractions:
+
+| Run #3 → run #4 | signer02 → signer01 | signer01 → signer02 | combined |
+|---|---|---|---|
+| Train / test windows | 48 / 112 → 40 / 96 | 112 / 48 → 96 / 40 | — |
+| Algorithm, thresholds | logistic_regression 0.4 / 0.0 → logistic_regression 0.5 / 0.25 | svm_rbf 0.65 / 0.35 → svm_rbf 0.6 / 0.2 | — |
+| Macro-F1 (open set) | 0.7842 → 0.7560 | 0.9168 → 0.9186 | 0.8223 → 0.8028 |
+| NONE false-accept | 25/48 → 22/48 | 1/16 → 0/16 | 26/64 → 22/64 |
+| NONE → HELLO / NO / YES | 15 / 4 / 6 → 12 / 5 / 5 | 1 / 0 / 0 → 0 / 0 / 0 | 16 / 4 / 6 → 12 / 5 / 5 |
+| HELLO, NO, YES recall | 15, 14, 16 of 16 → same | 7, 6, 8 of 8 → same | 22, 20, 24 of 24 → same |
+| Sign windows rejected as NONE | 1/64 → 2/48 | 2/32 → 2/24 | 3/96 → 4/72 |
+
+- **Macro-F1 is not comparable across the runs.** Run #3 averaged in THANK_YOU at F1 1.0;
+  run #4 has no such class. Lower combined macro-F1 does not mean the model got worse.
+- **Recall for HELLO, NO and YES did not change** in either fold.
+- **NONE false-accept fell from 26/64 to 22/64,** almost all in signer02 → signer01. That
+  fold's model changed (no THANK_YOU class, different thresholds). Accepting non-signs as
+  HELLO is still the main failure for a new person (12 of 64 NONE windows).
+- Still 2 signers: two data points, not an unseen-signer accuracy. The trainer's
+  grouped-by-take numbers above have both signers in training.
+
+### Run #3: 16 extra NONE takes (hold / reach), dataset `bd49407bb3e78bb2…`
+
+**Data added.** signer01 recorded 16 NONE takes (10:29–10:33 UTC) to fix "hand held out →
+NO" seen live. The signer reports performing only **hold** (hand raised beside the
+shoulder, still) or **reach** (hand out in front, slow or still) movements in all 16.
+**Prompt-tag mismatch:** the prompt picker was left on cycle, so the takes' `none_prompt`
+tags say rest 2, scratch 2, adjust 2, random 2, half 2, transition 2, chat 1, phone 1, hold 1,
+reach 1. The tags do **not** describe these 16 takes. The take files were not edited. Every
+frame of all 16 has a hand in view, which fits hold/reach rather than the tagged prompts
+such as rest. Session ID is still `s20261104`. Totals: 160 takes. signer01: HELLO,
+THANK_YOU, YES, NO 16 each, NONE 48. signer02: 8 each, NONE 16. All 160 are
+hp-v2-8fps-timed-1 and hand-evidence-v3. No take was rejected. Only signer01 has
+hold/reach NONE data.
+
+**Deployed bundle:** svm_rbf, thresholds min_confidence 0.55 and min_margin 0.2 from the
+pooled leave-one-signer-out search (`--threshold-source loso`; grouped folds would pick
+0.6 / 0.2). The same "no independent test remains" caveat applies.
+
+| Leave-one-signer-out, run #2 → run #3 | signer02 → signer01 | signer01 → signer02 | combined |
+|---|---|---|---|
+| Train / test windows | 48 / 96 → 48 / **112** | 96 / 48 → **112** / 48 | — |
+| Macro-F1 | 0.8507 → 0.7842 | 0.9567 → 0.9168 | 0.8856 → 0.8222 |
+| NONE false-accept | 13/32 → 25/48 | 1/16 → 1/16 | 14/48 → 26/64 |
+| NONE → HELLO / NO / YES | 7 / 0 / 6 → 15 / 4 / 6 | 1 / 0 / 0 → 1 / 0 / 0 | — |
+| Sign recall | 61/64 → 61/64 | 31/32 → **29/32** (NO 8/8 → 6/8, both to NONE) | 92/96 → 90/96 |
+
+- **signer02 → signer01 is the same model as before** (trained on signer02, who has no
+  hold/reach data). It accepted **12 of the 16 new hold/reach takes as signs** (8 HELLO,
+  4 NO). That is a measurement of the live "raised hand → sign" problem, not a regression.
+- **signer01 → signer02** is the only fold with the new data in training. signer02's NONE
+  false-accept did not change, but 2 of signer02's NO windows are now rejected as NONE. A
+  still raised hand and the small finger movement of NO look alike to the model.
+- **Same-person only:** in the trainer's grouped-by-take folds (deployed algorithm and
+  thresholds), all 16 hold/reach takes were rejected as NONE, and 93 of 96 sign windows
+  were correct. Both signers are in training there, so this is not a new-person result.
+- **Not measured:** whether hold/reach rejection carries over to a new person. signer02 has
+  no hold/reach takes. Next: signer02 (and any new signer) records `hold` and `reach` NONE
+  takes, choosing them in the NONE prompt menu so the tags are right.
+
+### Run #2 (dataset `c7bfbc6bde38e0f2…`)
+
+**Data.** 144 takes from **2 signers**. signer01 recorded 2 rounds (96 takes). Both rounds
+carry session ID `s20261104`, so the trainer sees one signer01 session. signer02 recorded
+48 takes. Per round: HELLO, THANK_YOU, YES, NO 8 each and NONE 16 (2 of each of the 8
+prompts). All takes are hp-v2-8fps-timed-1 and hand-evidence-v3: 16 frames, measured
+7.7–8.4 FPS, none low_fps. Each take yields exactly one window (144 windows).
+
+**Method.** Unchanged from run #1. The check runs outside the trainer, reusing its
+functions. Two folds: train on one signer, test on the other. The algorithm and the
+thresholds are chosen with inner CV on the **training signer only**. The held-out signer
+is used only for scoring. Values are exact fractions, or decimals truncated (not rounded).
+
+**The two folds changed in different ways.** signer02 → signer01 trains on exactly the
+same 48 signer02 takes as in run #1, so it is the same model; only its test set grew.
+signer01 → signer02 tests on the same 48 signer02 takes as in run #1, with twice the
+signer01 training data. Only this second fold measures the effect of more data.
+
+| | signer02 → signer01, run #1 | signer02 → signer01, run #2 | signer01 → signer02, run #1 | signer01 → signer02, run #2 | combined, run #1 | combined, run #2 |
+|---|---|---|---|---|---|---|
+| Train / test windows | 48 / 48 | 48 / 96 | 48 / 48 | 96 / 48 | — | — |
+| Algorithm (train signer only) | logistic_regression | logistic_regression | svm_rbf | svm_rbf | — | — |
+| Thresholds (train signer only) | 0.4 / 0.0 | 0.4 / 0.0 | 0.6 / 0.35 | 0.7 / 0.45 | — | — |
+| Macro-F1 | 0.7767 | 0.8507 | 0.8569 | **0.9567** | 0.8258 | 0.8856 |
+| NONE false-accept | 10/16 = 0.625 | 13/32 = 0.4062 | 0/16 = 0.0 | 1/16 = 0.0625 | 10/32 = 0.3125 | 14/48 = 0.2916 |
+| Sign windows rejected | 1/32 | 1/64 | 5/32 | 0/32 | 6/64 | 1/96 |
+| HELLO recall | 7/8 | 15/16 | 3/8 | **7/8** | 10/16 | 22/24 |
+
+In signer02 → signer01, run #2, signer01's round-1 takes score exactly as in run #1
+(macro-F1 0.7767, NONE false-accept 10/16, NONE → HELLO 6, NONE → YES 4). The round-2 takes
+score 0.9215, with NONE false-accept 3/16 (NONE → HELLO 1, NONE → YES 2). The model's
+behaviour did not change: this signer's round-2 non-signs are accepted as signs less often.
+As in run #1, the per-fold thresholds changed no held-out prediction; every rejection was
+NONE winning outright.
+
+Run #2 per class, precision / recall:
+
+| Label | signer02 → signer01 | signer01 → signer02 | combined |
+|---|---|---|---|
+| HELLO | 15/23 = 0.6521 / 15/16 = 0.9375 | 7/8 = 0.875 / 7/8 = 0.875 | 22/31 = 0.7096 / 22/24 = 0.9166 |
+| NO | 14/14 = 1.0 / 14/16 = 0.875 | 8/9 = 0.8888 / 8/8 = 1.0 | 22/23 = 0.9565 / 22/24 = 0.9166 |
+| THANK_YOU | 16/16 = 1.0 / 16/16 = 1.0 | 8/8 = 1.0 / 8/8 = 1.0 | 24/24 = 1.0 / 24/24 = 1.0 |
+| YES | 16/23 = 0.6956 / 16/16 = 1.0 | 8/8 = 1.0 / 8/8 = 1.0 | 24/31 = 0.7741 / 24/24 = 1.0 |
+| NONE | 19/20 = 0.95 / 19/32 = 0.5937 | 15/15 = 1.0 / 15/16 = 0.9375 | 34/35 = 0.9714 / 34/48 = 0.7083 |
+
+Run #2 combined confusion matrix (rows = true, columns = predicted):
+
+| true \ pred | HELLO | NO | THANK_YOU | YES | NONE |
+|---|---|---|---|---|---|
+| HELLO | 22 | 1 | 0 | 0 | 1 |
+| NO | 1 | 22 | 0 | 1 | 0 |
+| THANK_YOU | 0 | 0 | 24 | 0 | 0 |
+| YES | 0 | 0 | 0 | 24 | 0 |
+| NONE | 8 | 0 | 0 | 6 | 34 |
+
+**What this shows.**
+- **HELLO improved where it could be measured:** signer01 → signer02 recall rose from 3/8
+  to 7/8 with twice the signer01 data. The one remaining miss went to NO, not to NONE.
+- **NONE false-accept did not really improve.** It rose by one window where the comparison
+  is fair (0/16 → 1/16, signer01 → signer02). The signer02 → signer01 drop (0.625 → 0.4062)
+  comes only from signer01's new test takes. Accepting non-signs as HELLO or YES remains the
+  main failure for a new person: 14 of 48 NONE windows overall.
+- With 2 signers this is still two data points. A second round from the same signer adds
+  variation but no new-signer evidence.
+- **The trainer's own numbers above** come from grouped-by-take folds with both signers in
+  training. They should not be quoted as accuracy for new people.
+
+### Rejection thresholds (applied)
+
+The deployed thresholds, **min_confidence 0.55 and min_margin 0.2**, come from the pooled
+leave-one-signer-out search (`--threshold-source loso`). For each signer, an svm_rbf
+trained only on the other signer predicts that signer's windows; the trainer's `tune` then
+runs on the pooled predictions. The same-person grouped folds would have chosen 0.65 / 0.3,
+which on signer01 rejected 17 of 64 sign windows, against 5 of 64 now. On these predictions
+the thresholds add no rejection beyond NONE winning outright.
+
+**No independent test remains:** the thresholds were tuned and scored on the same pooled
+predictions (pooled macro-F1 0.9182 is optimistic). Tuning on one person and applying to
+the other did not transfer reliably (signer01 fell to 0.7033 with signer02's choice). The
+fold models were trained on one signer, the deployed model on both.
+
+**Required before claiming accuracy:** at least 3 signers, so that the trainer's
+leave-one-signer-out runs.

@@ -1,0 +1,14 @@
+{
+  "hp-v1-timed-1": {
+    "schema": "hp-v1", "fps": 15, "window": 24, "captureFrames": 26,
+    "minFrames": 24, "maxFrames": 200, "minFps": 14, "maxFps": 17,
+    "minSpanMs": 1380, "maxSpanMs": 1850, "minGapMs": 0, "maxGapMs": 100,
+    "deadlineMs": 3000, "sampling": "nearest-15fps"
+  },
+  "hp-v2-8fps-timed-1": {
+    "schema": "hp-v2-8fps", "fps": 8, "window": 16, "captureFrames": 16,
+    "minFrames": 16, "maxFrames": 16, "minFps": 7, "maxFps": 9.5,
+    "minSpanMs": 1550, "maxSpanMs": 2200, "minGapMs": 80, "maxGapMs": 190,
+    "deadlineMs": 3000, "timestampToleranceMs": 1, "sampling": "actual-frames"
+  }
+}

@@ -4,8 +4,9 @@ Nothing in SignSpeak is auto-approved. A model can only be trained on a sign aft
 person has watched the **official ISLRTC video** for it and answered a few questions.
 If you know ISL (ideally you are a Deaf ISL signer, or have one with you), you can do this.
 
-Candidates waiting: HELLO, THANK_YOU, YES, NO, WATER, FOOD, HELP, SORRY, PLEASE
-(all `verified: false` in `data/metadata/vocabulary.json`).
+Verified: HELLO, YES, NO. Candidates waiting: THANK_YOU (revoked 4 November 2026: it
+failed live, see docs/MODEL_CARD.md), WATER, FOOD, HELP, SORRY, PLEASE (`verified: false`
+in `data/metadata/vocabulary.json`).
 
 ## 1. Find the exact official video (3 min)
 

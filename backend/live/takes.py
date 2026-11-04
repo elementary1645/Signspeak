@@ -6,6 +6,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from backend.app.vocabulary import check_reference_url
 from .features import PERIOD_MS, WINDOW
+from .capture import validate_timing
+from .hand_validation import POLICY, require_accepted_hands
 from .protocol import validate_frames
 from .vocab import LABEL_PATTERN, NONE_LABEL
 
@@ -23,6 +25,10 @@ NONE_PROMPTS = (
     {'id': 'transition', 'text': 'Raise your hands into signing position, then lower them.'},
     {'id': 'chat', 'text': 'Gesture casually, as if chatting with a friend.'},
     {'id': 'phone', 'text': 'Pretend to check your phone.'},
+    # Added after collection started (ids only grow; older takes stay valid): every sign take starts
+    # with the hand raised, so a still raised or held-out hand must also be shown as NOT a sign.
+    {'id': 'hold', 'text': "Raise your hand beside your shoulder and hold it still, like you are about to sign, but don't sign."},
+    {'id': 'reach', 'text': 'Hold your hand out in front of you and move it slowly, no sign.'},
 )
 NONE_PROMPT_IDS = {p['id'] for p in NONE_PROMPTS}
 
@@ -43,6 +49,8 @@ class TakeMeta(BaseModel):
     consent: Literal[True]
     preview_mirrored: bool
     # Optional, added after collection started: older takes without them stay valid.
+    capture_protocol: Optional[Literal["hp-v1-timed-1", "hp-v2-8fps-timed-1"]] = None
+    hand_validation: Optional[Literal["pose-wrist-v1", "hand-evidence-v2", "hand-evidence-v3"]] = None
     low_fps: Optional[bool] = None
     measured_fps: Optional[float] = Field(default=None, ge=0, le=240)
 
@@ -72,7 +80,15 @@ def validate_take(raw):
     frames = validate_frames(frames_raw)
     if frames[-1]['t_ms'] - frames[0]['t_ms'] < MIN_SPAN_MS:
         raise ValueError('Take is too short to cover one recognition window')
-    return meta.model_dump(by_alias=True), frames
+    if meta.capture_protocol is not None:
+        validate_timing(frames, meta.capture_protocol)
+    if meta.capture_protocol == 'hp-v2-8fps-timed-1':
+        # The current policy's sequence verdict over this take's own frames only (no pre-take history).
+        require_accepted_hands(frames)
+    out = meta.model_dump(by_alias=True)
+    # Takes recorded under an older observation policy stay readable, but are tagged.
+    out['hand_validation_current'] = meta.hand_validation == POLICY['policy']
+    return out, frames
 
 
 def content_hash(raw):

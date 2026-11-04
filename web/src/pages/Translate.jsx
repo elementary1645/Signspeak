@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { policyMatches } from '../lib/handValidation.js';
 import { useLandmarks } from '../lib/useLandmarks.js';
 import CameraView from '../lib/CameraView.jsx';
+import DeviceNotice, { useSlowTracker } from '../lib/DeviceNotice.jsx';
 import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
 import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../lib/api.js';
 import { InfoIcon, ReplayIcon, SpeakerIcon } from '../lib/icons.jsx';
 import { Speaker, readAutoSpeak, saveAutoSpeak } from '../lib/speech.js';
-import { viewState, STATE_TEXT } from '../lib/translateState.js';
+import { viewState, STATE_TEXT, REREADING_TEXT, timingNotice } from '../lib/translateState.js';
+import { appendLog, fromBrowserUncertain, fromPrediction } from '../lib/predictionLog.js';
 
 const TRANSPORT_TEXT = {
   idle: 'Not connected', connecting: 'Connecting…', ws: 'Live connection',
@@ -23,6 +26,8 @@ export default function Translate({ link }) {
   const [history, setHistory] = useState([]);
   const [announcement, setAnnouncement] = useState('');
   const [lastError, setLastError] = useState(null);
+  const [predictionLog, setPredictionLog] = useState([]); // local debug readout only
+  const resetAtRef = useRef(-Infinity); // performance.now() of the last session reset (display only)
   const clientRef = useRef(null);
   const speakerRef = useRef(null);
   const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak);
@@ -60,6 +65,8 @@ export default function Translate({ link }) {
     setLastError(null);
     setBackendDown(false);
     setResult(message);
+    setPredictionLog(log => appendLog(log, fromPrediction(message)));
+    if (message.code === 'UNCERTAIN_HANDS') resetAtRef.current = performance.now(); // the server reset its window
     if (typeof message.t_ms === 'number') setRtt(performance.now() - message.t_ms);
     if (message.event) {
       const meaning = meaningOf(translationsRef.current, message.event, langRef.current);
@@ -69,16 +76,34 @@ export default function Translate({ link }) {
     }
   }, [say]);
 
+  const readyRef = useRef(false);
+  const policyMismatch = !!status?.ready && status.model?.schema === 'hp-v2-8fps' && !policyMatches(status.model?.hand_validation);
+  readyRef.current = !!status?.ready && !policyMismatch;
+  const onUncertain = useCallback(details => {
+    resetAtRef.current = performance.now();
+    clientRef.current?.reset(details.t_ms);
+    speakerRef.current?.stop();
+    if (readyRef.current) setResult({ type: 'prediction', state: 'UNCERTAIN_HANDS', code: 'UNCERTAIN_HANDS', label: null });
+    if (readyRef.current) setPredictionLog(log => appendLog(log, fromBrowserUncertain(details)));
+  }, []);
   const onFrame = useCallback(frame => clientRef.current?.send(frame), []);
-  const cam = useLandmarks({ onFrame });
+  const cam = useLandmarks({ onFrame, onUncertain, requiredFps: status?.ready ? status.model?.fps : null,
+    maxSourceFps: status?.ready && status.model?.temporal?.sampling === 'actual-frames' ? status.model.temporal.maxFps : null });
+
+  const modelProtocol = status?.ready ? status.model?.capture_protocol : null;
+  const previousProtocol = useRef(modelProtocol);
+  useEffect(() => {
+    if (previousProtocol.current !== modelProtocol && cam.status === 'running') cam.stop();
+    previousProtocol.current = modelProtocol;
+  }, [modelProtocol, cam.status, cam.stop]);
 
   useEffect(() => {
-    if (cam.status !== 'running') return undefined;
+    if (cam.status !== 'running' || policyMismatch) return undefined;
     const client = new RecognizerClient({ url: wsUrl(window.location), onMessage, onTransport: setTransport });
     clientRef.current = client;
     client.start();
     return () => { client.stop(); clientRef.current = null; setResult(null); setRtt(null); };
-  }, [cam.status, onMessage]);
+  }, [cam.status, onMessage, policyMismatch]);
 
   const statusCode = status && !status.ready ? status.code : null;
   useEffect(() => {
@@ -89,14 +114,21 @@ export default function Translate({ link }) {
 
   function chooseLanguage(code) { setLang(code); saveLanguage(code); }
 
-  const view = viewState({ camStatus: cam.status, transport: transport.mode, status, result, backendDown });
+  const displayStatus = policyMismatch ? { ...status, ready: false, code: 'MODEL_INCOMPATIBLE',
+    detail: 'Browser and model observation policies differ. Rebuild/restart both before recognition.' } : status;
+  const view = viewState({ camStatus: cam.status, transport: transport.mode, status: displayStatus, result, backendDown });
   const shown = view.state === 'RECOGNIZED' ? result?.label : null;
+  const contract = status?.model?.temporal || {};
+  const notice = timingNotice({ code: result?.code, sinceResetMs: performance.now() - resetAtRef.current,
+    fps: cam.stats.fps, minFps: contract.minFps, maxFps: contract.maxFps });
+  const slowTracker = useSlowTracker(cam, contract.minFps);
   const supported = status?.ready ? status.model?.labels || [] : [];
   const unchecked = label => lang !== 'en' && translations[label]?.needs_native_check;
 
   return (
     <div className="page">
       <h1>Translate</h1>
+      <DeviceNotice slow={slowTracker} fps={cam.stats.fps} />
       {backendDown && <p className="notice error" role="alert"><strong>Can’t reach the SignSpeak server.</strong>
         Check your connection and reload the page. If this is the public demo, it may be waking up. Wait a minute and try again.</p>}
       {!backendDown && view.notTrained && (
@@ -105,10 +137,14 @@ export default function Translate({ link }) {
           nothing is recognised, and SignSpeak will not guess. You can still try the camera and hand tracking.</p>
       )}
       {!backendDown && view.loading && <p className="notice" role="status"><strong>Loading the trained model…</strong>The server has just started. Recognition begins in a few seconds.</p>}
-      {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{status?.detail || result?.detail}</p>}
+      {!backendDown && view.incompatible && <p className="notice error" role="status"><strong>Recognition unavailable.</strong>{displayStatus?.detail || result?.detail}</p>}
 
       <div className="translate-layout">
         <div>
+          {status?.ready && <p className="muted">Model: {status.model?.schema} · {status.model?.window} frames at {status.model?.fps} FPS.</p>}
+          {result?.code === 'UNCERTAIN_HANDS' && <p className="notice warn" role="status">Hand detection is uncertain. Recognition is paused; inspect the camera diagnostics.</p>}
+          {notice === 'rereading' && <p className="notice" role="status">{REREADING_TEXT}</p>}
+          {notice === 'fps' && <p className="notice warn" role="status">Tracking FPS is insufficient or uneven ({cam.stats.fps.toFixed(1)} fps). {result.detail}</p>}
           <CameraView cam={cam} label="Mirrored camera preview with hand and upper-body tracking" />
           <p className="hint muted"><InfoIcon className="icon" style={{ width: 22, height: 22, flex: 'none' }} />
             Sit so your hands and shoulders are in view. Make the sign, then hold it for about a second.</p>
@@ -168,6 +204,33 @@ export default function Translate({ link }) {
               ))}
             </ul>
           ) : <p className="muted">Nothing recognised yet.</p>}
+
+          <details className="prediction-log">
+            <summary>Last {predictionLog.length} predictions (debug)</summary>
+            <p className="muted small">Shown in this browser only; not sent or saved. Newest first. A sign is shown
+              after 3 agreeing accepted predictions over at least 0.5 s; a browser reset restarts the 16-frame window.</p>
+            {predictionLog.length ? (
+              <div className="table-wrap">
+                <table className="table small" aria-label="Last predictions">
+                  <thead><tr><th scope="col">t (s)</th><th scope="col">From</th><th scope="col">State</th><th scope="col">Label</th>
+                    <th scope="col">Conf.</th><th scope="col">Margin</th><th scope="col">Reason</th></tr></thead>
+                  <tbody>
+                    {predictionLog.map((p, i) => (
+                      <tr key={i}>
+                        <td>{p.t_ms != null ? (p.t_ms / 1000).toFixed(2) : '–'}</td>
+                        <td>{p.source}{p.count > 1 ? ` ×${p.count}` : ''}</td>
+                        <td>{p.state}{p.event ? ' · emitted' : ''}</td>
+                        <td>{p.label || (p.topLabel ? `– (top: ${p.topLabel} ${p.topConfidence != null ? p.topConfidence.toFixed(3) : ''})` : '–')}</td>
+                        <td>{p.confidence != null ? p.confidence.toFixed(3) : '–'}</td>
+                        <td>{p.margin != null ? p.margin.toFixed(3) : '–'}</td>
+                        <td>{p.reason || '–'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="muted small">No predictions yet.</p>}
+          </details>
         </section>
       </div>
 

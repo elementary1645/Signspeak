@@ -29,6 +29,8 @@ def test_api_model_reports_metrics_json_verbatim(with_model, trained):
     assert body['none_false_accept_rate'] == m['none_false_accept_rate']
     assert body['evaluation']['scheme'] == m['scheme'] == 'leave-one-signer-out'
     assert body['vocabulary_version'] == b['vocab_fingerprint'][:12] and body['trained_at'] == b['trained_at']
+    assert body['window_frames'] == b['window'] and body['fps'] == b['fps']
+    assert body['threshold_source'] == m.get('threshold_source')
 
 
 def test_api_signs_details_only_for_verified(no_model, registry):

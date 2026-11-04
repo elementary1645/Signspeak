@@ -104,3 +104,36 @@ test('a model still downloading shows a loading state, not "not trained"', () =>
   const v = viewState({ camStatus: 'idle', transport: 'idle', status: { ready: false, code: 'MODEL_LOADING' } });
   assert.deepEqual([v.state, v.badge, v.loading, v.notTrained], ['ERROR', 'Loading model', true, false]);
 });
+
+import { SlowFpsWatch, UNSUPPORTED_DEVICE_TEXT, isPhoneOrTablet } from '../src/lib/deviceSupport.js';
+
+test('phone/tablet detection: user agent, iPadOS desktop UA, or touch-first small screen', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+  const chrome = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+  assert.equal(isPhoneOrTablet({ userAgent: iphone }), true);
+  assert.equal(isPhoneOrTablet({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari/537.36' }), true);
+  assert.equal(isPhoneOrTablet({ userAgent: mac, maxTouchPoints: 5 }), true); // iPadOS
+  assert.equal(isPhoneOrTablet({ userAgent: mac, maxTouchPoints: 0, screenWidth: 1512, screenHeight: 982 }), false);
+  assert.equal(isPhoneOrTablet({ userAgent: chrome, maxTouchPoints: 0, screenWidth: 1920, screenHeight: 1080 }), false);
+  // Touch laptop: touch points but a fine primary pointer.
+  assert.equal(isPhoneOrTablet({ userAgent: chrome, maxTouchPoints: 10, coarsePointer: false, screenWidth: 1366, screenHeight: 768 }), false);
+  assert.equal(isPhoneOrTablet({ userAgent: chrome, maxTouchPoints: 10, coarsePointer: true, screenWidth: 800, screenHeight: 1280 }), true);
+  assert.equal(isPhoneOrTablet({}), false);
+  assert.match(UNSUPPORTED_DEVICE_TEXT, /^SignSpeak needs a laptop or desktop with Chrome or Edge\. Phones are too slow for the 8 FPS tracker right now\.$/);
+});
+
+test('slow-fps watch fires only after fps stays below 7 for 5 s, then stays on until reset', () => {
+  const w = new SlowFpsWatch();
+  assert.equal(w.update(0, 3.7), false);
+  assert.equal(w.update(4000, 3.7), false);
+  assert.equal(w.update(4500, 7.5), false); // recovered: clock restarts
+  assert.equal(w.update(5000, 6.9), false);
+  assert.equal(w.update(9000, null), false); // unknown fps does not move the decision
+  assert.equal(w.update(9999, 6.0), false);
+  assert.equal(w.update(10000, 6.0), true);
+  assert.equal(w.update(11000, 8), true); // sticky
+  w.reset();
+  assert.equal(w.update(12000, 8), false);
+  assert.equal(new SlowFpsWatch().update(0, 8), false);
+});

@@ -13,7 +13,7 @@ services:
     envVars:
       # Private Hugging Face model repo with model.joblib, metrics.json, audio/ (scripts/publish_model.py).
       - key: MODEL_REPO
-        value: Chinmay1881/signspeak-model
+        value: Elementary1645/signspeak-model
       # READ-only HF token for that repo. Set it in the Render dashboard; never commit it.
       - key: HF_TOKEN
         sync: false

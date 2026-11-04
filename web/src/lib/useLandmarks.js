@@ -1,151 +1,183 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { drawOverlay, toFrame } from './lm.js';
+import { toFrame } from './lm.js';
+import { POLICY, HandEvidenceTracker } from './handValidation.js';
+import { FramingMonitor } from './framing.js';
 import { FpsMeter } from './capture.js';
+import { FrameClock, FreshFrame, validResultPair, InferenceCadence, inferenceSize, TimingWindow, TrackerWorker } from './tracking.js';
 
-// Self-hosted runtime and models: copied/downloaded by our scripts, served same-origin.
-const WASM_PATH = '/mediapipe/wasm';
-const HAND_MODEL = '/models/hand_landmarker.task';
-const POSE_MODEL = '/models/pose_landmarker_lite.task';
-
-let filesetPromise = null;
-const detectorCache = {};
-
-async function create(Task, modelAssetPath, extra, delegate) {
-  filesetPromise ||= FilesetResolver.forVisionTasks(WASM_PATH).catch(err => { filesetPromise = null; throw err; });
-  const fileset = await filesetPromise;
-  return Task.createFromOptions(fileset, { baseOptions: { modelAssetPath, delegate }, runningMode: 'VIDEO', ...extra });
-}
-
-// GPU first, CPU fallback, per landmarker. Output format is identical either way.
-async function createWithFallback(Task, model, extra, preferCpu) {
-  if (!preferCpu) {
-    try {
-      return { task: await create(Task, model, extra, 'GPU'), delegate: 'GPU' };
-    } catch (err) {
-      console.warn(`GPU delegate unavailable for ${model}; using CPU`, err);
-    }
-  }
-  return { task: await create(Task, model, extra, 'CPU'), delegate: 'CPU' };
-}
-
-function loadDetectors(preferCpu = false) {
-  const key = preferCpu ? 'cpu' : 'auto';
-  detectorCache[key] ||= Promise.all([
-    createWithFallback(HandLandmarker, HAND_MODEL, { numHands: 2 }, preferCpu),
-    createWithFallback(PoseLandmarker, POSE_MODEL, { numPoses: 1 }, preferCpu),
-  ]).then(([hand, pose]) => ({ hand, pose }))
-    .catch(err => { delete detectorCache[key]; throw err; });
-  return detectorCache[key];
-}
-
-function cameraError(err) {
-  if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) return { kind: 'insecure', message: 'Camera needs HTTPS or localhost.' };
-  if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') return { kind: 'denied', message: 'Camera permission was denied. Allow camera access for this site in your browser settings, then try again.' };
-  if (err?.name === 'NotFoundError' || err?.name === 'OverconstrainedError') return { kind: 'no-camera', message: 'No camera was found on this device.' };
-  if (err?.name === 'NotReadableError') return { kind: 'busy', message: 'The camera is being used by another app. Close it and try again.' };
-  return { kind: 'detector', message: `The hand tracker could not start: ${err?.message || err}` };
-}
-
-// Shared camera + landmark loop. Emits lm-v1 frames at ~fps through onFrame.
-// status: idle | loading | running | error
-export function useLandmarks({ onFrame, fps = 15 }) {
+export function useLandmarks({ onFrame, fps = 15, requiredFps = null, maxSourceFps = null, handValidation = POLICY, onUncertain, diagnosticBuffer = null }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const loopRef = useRef(null);
+  const session = useRef(null);
   const onFrameRef = useRef(onFrame);
+  const onUncertainRef = useRef(onUncertain);
+  onUncertainRef.current = onUncertain;
+  onFrameRef.current = onFrame;
+  const [settings, setSettings] = useState({ width: 640, fps, delegate: 'CPU' });
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [lastFrame, setLastFrame] = useState(null);
-  const [stats, setStats] = useState({ fps: null, delegate: null, detectMs: null });
-  onFrameRef.current = onFrame;
+  const [stats, setStats] = useState({});
+  const [logCandidates, setLogCandidates] = useState(false);
+  const logCandidatesRef = useRef(false);
+  logCandidatesRef.current = logCandidates;
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [framingWarn, setFramingWarn] = useState(false);
+  const overlayMs = useRef(0);
+  const onOverlayDraw = useCallback(ms => { overlayMs.current = ms; }, []);
 
   const stop = useCallback(() => {
-    if (loopRef.current) cancelAnimationFrame(loopRef.current);
-    loopRef.current = null;
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
+    const s = session.current;
+    session.current = null; // invalidates pending camera, initialization, bitmap and inference work
+    if (s) {
+      cancelAnimationFrame(s.loop);
+      if (s.videoCallback != null) videoRef.current?.cancelVideoFrameCallback?.(s.videoCallback);
+      s.stream?.getTracks().forEach(t => t.stop());
+      s.workers?.forEach(w => w.close());
+      s.fresh?.close();
+    }
     if (videoRef.current) videoRef.current.srcObject = null;
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx) drawOverlay(ctx, null);
+    setDiagnostics(null);
+    setFramingWarn(false);
     setLastFrame(null);
-    setStats(s => ({ ...s, fps: null, detectMs: null }));
+    setStats({});
     setStatus('idle');
   }, []);
 
   const start = useCallback(async () => {
-    if (streamRef.current) return;
-    setError(null);
+    const effectiveFps = requiredFps ?? settings.fps;
+    if (session.current) return; // includes loading, not just a resolved camera stream
+    const s = { workers: [], loop: null, stream: null };
+    session.current = s;
+    const active = () => session.current === s;
     setStatus('loading');
+    setError(null);
+    const fail = err => {
+      if (!active()) return;
+      stop();
+      setError({ message: `Tracker stopped: ${err.message}. Check camera permission and HTTPS. If GPU initialization failed, select CPU and retry.` });
+      setStatus('error');
+    };
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('getUserMedia unavailable'), { name: 'SecurityError' });
-      const [loaded, stream] = await Promise.all([
-        loadDetectors(),
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false }),
-      ]);
-      let detectors = loaded;
-      streamRef.current = stream;
+      // Acquire sequentially so every late stream and every worker has a cleanup owner.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: {
+        width: { ideal: settings.width }, height: { ideal: settings.width * 3 / 4 },
+        frameRate: { ideal: Math.max(30, effectiveFps) }, facingMode: 'user',
+      }, audio: false });
+      if (!active()) { stream.getTracks().forEach(t => t.stop()); return; }
+      s.stream = stream;
       const video = videoRef.current;
       video.srcObject = stream;
       await video.play();
-      setStatus('running');
-      const describe = d => (d.hand.delegate === d.pose.delegate ? d.hand.delegate : `hand ${d.hand.delegate}, pose ${d.pose.delegate}`);
-      setStats(s => ({ ...s, delegate: describe(detectors) }));
-      const period = 1000 / fps;
-      const meter = new FpsMeter();
-      let last = -Infinity;
-      let lastTs = 0;
-      let lastStats = 0;
-      let switching = false;
-      const tick = () => {
-        loopRef.current = requestAnimationFrame(tick);
-        const now = performance.now();
-        if (switching || now - last < period || video.readyState < 2) return;
-        last = now;
-        const ts = Math.max(lastTs + 1, Math.round(now)); // VIDEO mode needs increasing timestamps
-        lastTs = ts;
-        let handResult, poseResult;
-        try {
-          handResult = detectors.hand.task.detectForVideo(video, ts);
-          poseResult = detectors.pose.task.detectForVideo(video, ts);
-        } catch (err) {
-          if (detectors.hand.delegate === 'CPU' && detectors.pose.delegate === 'CPU') throw err;
-          // A GPU context can fail mid-session (driver reset, tab hidden): continue on CPU.
-          switching = true;
-          console.warn('GPU landmarker failed; switching to CPU', err);
-          loadDetectors(true).then(cpu => { detectors = cpu; setStats(s => ({ ...s, delegate: 'CPU (GPU failed)' })); })
-            .finally(() => { switching = false; });
-          return;
-        }
-        const detectMs = performance.now() - now;
-        const frame = toFrame(ts, handResult, poseResult, video.videoWidth, video.videoHeight);
-        const canvas = canvasRef.current;
-        if (canvas) {
-          if (canvas.width !== frame.w) { canvas.width = frame.w; canvas.height = frame.h; }
-          drawOverlay(canvas.getContext('2d'), frame);
-        }
-        meter.add(frame.t_ms);
-        if (now - lastStats > 500) {
-          lastStats = now;
-          setStats(s => ({ ...s, fps: meter.fps(), detectMs }));
-        }
+      if (!active()) return;
+      for (const kind of ['hand', 'pose']) s.workers.push(new TrackerWorker(kind, settings.delegate));
+      await Promise.all(s.workers.map(w => w.ready));
+      if (!active()) return;
+      const input = document.createElement('canvas');
+      const size = inferenceSize(video.videoWidth, video.videoHeight, settings.width);
+      input.width = size.width; input.height = size.height;
+      const ctx = input.getContext('2d');
+      const meter = new FpsMeter(3000);
+      const timings = new TimingWindow();
+      const clock = new FrameClock();
+      const cadence = new InferenceCadence(effectiveFps, maxSourceFps);
+      // One decision per observation for collector, Translate, overlay and status. A new
+      // camera session always starts with fresh face-entry history.
+      const tracker = new HandEvidenceTracker({ ...handValidation, allowHandednessFallback: effectiveFps !== 15 });
+      const framing = new FramingMonitor();
+      s.fresh = new FreshFrame(frame => {
         setLastFrame(frame);
-        onFrameRef.current?.(frame);
+        if (!frame) setDiagnostics({ stale: true, reason: 'No fresh synchronized observation; overlay cleared' });
+      });
+      let staleResults = 0;
+      let lastStats = -Infinity;
+      let busy = false;
+      const schedule = () => {
+        if (!active()) return;
+        if (video.requestVideoFrameCallback) s.videoCallback = video.requestVideoFrameCallback(tick);
+        else s.loop = requestAnimationFrame(tick);
       };
-      loopRef.current = requestAnimationFrame(tick);
-    } catch (err) {
-      stop();
-      setError(cameraError(err));
-      setStatus('error');
-    }
-  }, [fps, stop]);
+      const tick = async (_callbackTime, metadata) => {
+        if (!active()) return;
+        schedule();
+        const now = performance.now();
+        // Polling can be faster than the camera; never infer the same source frame twice.
+        const source = metadata?.mediaTime ?? video.currentTime;
+        const due = cadence.ready(now, source * 1000);
+        if (busy || !due || video.readyState < 2) return;
+        const timestamp = clock.timestamp(source, now);
+        if (timestamp == null) return;
+        busy = true;
+        cadence.started(now);
+        try {
+          ctx.drawImage(video, 0, 0, input.width, input.height);
+          // Both tasks see the exact same unmirrored snapshot and capture timestamp.
+          const bitmaps = await Promise.all([createImageBitmap(input), createImageBitmap(input)]);
+          if (!active()) { bitmaps.forEach(b => b.close()); return; }
+          const [hand, pose] = await Promise.all(s.workers.map((w, i) =>
+            w.request({ type: 'frame', bitmap: bitmaps[i], timestamp, kind: i === 0 ? 'hand' : 'pose' }, [bitmaps[i]])));
+          if (!active()) return;
+          const detectMs = performance.now() - now;
+          const processingStart = performance.now();
+          let processMs = 0;
+          if (validResultPair(hand, pose, timestamp, performance.now() - now)) {
+            const rawFrame = toFrame(timestamp, hand.result, pose.result, input.width, input.height);
+            const accepted = tracker.validate(rawFrame);
+            const view = framing.add(rawFrame.t_ms, rawFrame.pose);
+            setFramingWarn(view.warn);
+            // Diagnostics only: pose elbows 13/14 as [x, y, z, visibility]; never read by admission.
+            const details = { ...accepted.diagnostics, poseElbows: rawFrame.pose ? [rawFrame.pose[13], rawFrame.pose[14]] : null,
+              t_ms: rawFrame.t_ms, sourceTimestamp: timestamp,
+              workerTimestamps: { hand: hand.timestamp, pose: pose.timestamp },
+              resultAgeMs: performance.now() - now, input: { width: input.width, height: input.height },
+              detectorThresholds: { detection: POLICY.minHandDetectionConfidence, presence: POLICY.minHandPresenceConfidence,
+                tracking: POLICY.minTrackingConfidence }, presenceConfidence: null,
+              framing: { warn: view.warn, badFraction: view.badFraction, samples: view.samples } };
+            setDiagnostics(details);
+            if (logCandidatesRef.current) console.table(details.raw.map(d => ({ t_ms: details.t_ms, handWrist: JSON.stringify(d.handWrist),
+              handWristPixels: JSON.stringify(d.handWristPixels), handedness: d.handedness, handednessScore: d.handednessScore,
+              poseLeftWrist: JSON.stringify(d.poseWrists[0].coordinates), poseRightWrist: JSON.stringify(d.poseWrists[1].coordinates),
+              leftVisibility: d.poseWrists[0].visibility, rightVisibility: d.poseWrists[1].visibility,
+              leftDistancePixels: d.poseWrists[0].distancePixels, rightDistancePixels: d.poseWrists[1].distancePixels,
+              leftDistanceShoulders: d.poseWrists[0].distanceShoulders, rightDistanceShoulders: d.poseWrists[1].distanceShoulders,
+              state: d.status, side: d.side, source: d.sideSource, reason: d.reason, legacyReason: d.legacyReason })));
+            if (s.fresh.accept(accepted.frame, now)) {
+              // Every consumer receives this exact accepted observation; no rejected raw data escapes.
+              if (accepted.diagnostics.recordable) onFrameRef.current?.(accepted.frame);
+              else onUncertainRef.current?.({ ...details, t_ms: rawFrame.t_ms });
+              meter.add(accepted.frame.t_ms);
+            }
+            // Copy evidence after the unchanged live consumers. Freezing never gates this loop.
+            try { diagnosticBuffer?.append(details); } catch { /* diagnostics must not stop inference */ }
+            processMs = performance.now() - processingStart;
+          } else {
+            staleResults++;
+            setLastFrame(null);
+            onUncertainRef.current?.({ t_ms: timestamp, state: 'stale' });
+            setDiagnostics({ stale: true, reason: 'Expired or mismatched worker result; not recorded' });
+          }
+          const renderMs = overlayMs.current;
+          timings.add({ handMs: hand.ms, poseMs: pose.ms, detectMs, processMs, renderMs, totalMs: performance.now() - now });
+          // Timing diagnostics need only 2 updates/s; overlay/status and consumers receive every fresh frame.
+          if (now - lastStats >= 500) {
+            lastStats = now;
+            setStats({ ...timings.summary(), fps: meter.fps(), staleResults, delegate: settings.delegate,
+              resolution: `${input.width}×${input.height}`, cameraResolution: `${video.videoWidth}×${video.videoHeight}` });
+          }
+        } catch (err) { fail(err); }
+        finally { busy = false; }
+      };
+      setStatus('running');
+      schedule();
+    } catch (err) { fail(err); }
+  }, [settings, requiredFps, maxSourceFps, handValidation, diagnosticBuffer, stop]);
 
   useEffect(() => stop, [stop]);
   useEffect(() => {
+    const visibility = () => { if (document.hidden) stop(); };
     window.addEventListener('pagehide', stop);
-    return () => window.removeEventListener('pagehide', stop);
+    document.addEventListener('visibilitychange', visibility);
+    return () => { window.removeEventListener('pagehide', stop); document.removeEventListener('visibilitychange', visibility); };
   }, [stop]);
-
-  return { videoRef, canvasRef, status, error, lastFrame, stats, start, stop };
+  return { videoRef, canvasRef, status, error, lastFrame, stats, diagnostics, framingWarn, logCandidates, setLogCandidates, onOverlayDraw, settings: { ...settings, fps: requiredFps ?? settings.fps }, requiredFps, setSettings, start, stop };
 }
