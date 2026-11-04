@@ -2,7 +2,7 @@
 model repo, where hosts that build from GitHub (Render) download it at startup.
 
   $env:HF_TOKEN = "<write token>"
-  python -m scripts.publish_model [--repo Chinmay1881/signspeak-model] [--dry-run]
+  python -m scripts.publish_model [--repo Elementary1645/signspeak-model] [--dry-run]
 
 The bundle never goes into GitHub. The repo is created private; an existing PUBLIC repo
 is refused. HF_TOKEN is read from the environment only and never printed or written.
@@ -20,7 +20,7 @@ from backend.live import vocab  # noqa: E402
 from backend.live.audio import PUBLIC_AUDIO  # noqa: E402
 from backend.live.model import LiveModel, model_path  # noqa: E402
 
-DEFAULT_REPO = 'Chinmay1881/signspeak-model'
+DEFAULT_REPO = 'Elementary1645/signspeak-model'
 README = """---
 license: other
 tags: [private, signspeak]

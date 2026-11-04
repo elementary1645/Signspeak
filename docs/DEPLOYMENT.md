@@ -21,12 +21,12 @@ every git-based build ships it; regenerate and commit it after any translation e
 
 1. **Private model repo + tokens** on https://huggingface.co/settings/tokens:
    - a **Write** token, for you, to publish models;
-   - a **Read** token (fine-grained, read access to `Chinmay1881/signspeak-model`), for Render.
+   - a **Read** token (fine-grained, read access to `Elementary1645/signspeak-model`), for Render.
 2. **Publish a model**, after training (see the evening loop). This creates the repo as private:
    ```powershell
    pip install -r requirements-tools.txt
    $env:HF_TOKEN = "<write token>"
-   python -m scripts.publish_model                       # default repo Chinmay1881/signspeak-model
+   python -m scripts.publish_model                       # default repo Elementary1645/signspeak-model
    ```
    You can deploy before any model exists. The app then shows "Model not trained yet".
 3. **Create the service:** https://dashboard.render.com → **New** → **Blueprint** →
@@ -37,7 +37,7 @@ every git-based build ships it; regenerate and commit it after any translation e
    variables come from `render.yaml`:
    | Variable | Value | Why |
    |---|---|---|
-   | `MODEL_REPO` | `Chinmay1881/signspeak-model` | where the bundle is downloaded from (change it in the dashboard if your repo differs) |
+   | `MODEL_REPO` | `Elementary1645/signspeak-model` | where the bundle is downloaded from (change it in the dashboard if your repo differs) |
    | `HF_TOKEN` | Read token (secret) | private repo access; never committed |
    | `LEGACY_DETECTOR` | `0` | skips the Phase 1/2 lab's Python MediaPipe (≈125 MB instead of ≈250 MB idle) |
    | `PREDICT_EVERY` | `3` | prediction stride at 15 fps; raise it to 5–6 only if latency climbs |
@@ -105,7 +105,7 @@ files are downloadable, so do **not** upload the bundle into a public Space.
    The script adds the Space front matter (`sdk: docker`, `app_port: 7860`). It uploads
    only git-tracked code, never `data/raw`, `data/processed`, `.task` files or `.env`.
 3. **Space settings → Variables and secrets:**
-   - Variable `MODEL_REPO` = `Chinmay1881/signspeak-model`
+   - Variable `MODEL_REPO` = `Elementary1645/signspeak-model`
    - Secret `HF_TOKEN` = the **read-only** token (the same one Render uses)
    - Optional variable `LEGACY_DETECTOR` = `0`, only if you want the smaller footprint
    Saving a variable or secret restarts the Space.
