@@ -1,9 +1,11 @@
-# Critical hand regression — hand-evidence-v3, device acceptance pending
+# Critical hand regression — hand-evidence-v3, laptop acceptance passed
 
-**The Windows laptop regression is not yet confirmed fixed.** Automated fixtures and
-headless tests cannot establish that the actual laptop accepts genuine hands and rejects
-face hallucinations. Do not resume sign collection until the acceptance steps at the end
-of this document pass on the laptop.
+**The Windows laptop acceptance steps passed on 3 November 2026 (build `cbeadee`,
+hand-evidence-v3)**; results are below. Sign collection may resume under
+[COLLECTION_PROTOCOL.md](COLLECTION_PROTOCOL.md), with good framing and each take started
+with the hand raised beside the shoulder. Automated fixtures and headless tests do not
+substitute for this: rerun the acceptance steps at the end of this document on the laptop
+after any change to hand admission.
 
 ## Laptop acceptance results
 
@@ -342,7 +344,7 @@ no timing rule or performance gate was relaxed. Prior geometry coverage is retai
 with missing-pose tests now asserting independent admission or explicit uncertainty
 instead of treating missing body evidence as proof of no hand.
 
-## Exact Windows acceptance steps — still required
+## Exact Windows acceptance steps (passed 3 Nov 2026, build `cbeadee`; rerun after admission changes)
 
 1. Pull this branch, rebuild, restart the app/server and hard-refresh `/collect`:
 

@@ -50,7 +50,7 @@ This diagnostic tool does not fix or change detection. Copy the evidence before 
 
 ## Verify accepted hand tracking before each session
 
-The current policy is **hand-evidence-v2**. Confirm genuine left/right hands are accepted
+The current policy is **hand-evidence-v3**. Confirm genuine left/right hands are accepted
 below and above the shoulders, far from the torso, near the face, and crossing the body.
 Missing body landmarks do not prove a hand is invalid. Dashed **yellow** candidates are
 explicitly **uncertain**, preview only, and cannot be recorded. Any uncertain observation
@@ -61,9 +61,9 @@ visibility, distances, decision reasons and the old-policy comparison. Handednes
 is identity confidence, not hand-presence confidence. Optional local console logging is
 available; no diagnostics are sent to the server or training dataset.
 
-**The Windows regression is not yet confirmed fixed.** Do not collect training signs
-until the [actual-device acceptance steps](PHASE3_HAND_REGRESSION.md) pass. No headless
-or synthetic test substitutes for accepting genuine hands on that laptop.
+The Windows laptop passed the [actual-device acceptance steps](PHASE3_HAND_REGRESSION.md)
+on 3 November 2026 (build `cbeadee`, hand-evidence-v3). Rerun them on the laptop after any
+change to hand admission; no headless or synthetic test substitutes for that.
 
 ## Framing and start position (required)
 
@@ -78,7 +78,8 @@ For each sign in the list:
 1. Open the official link shown on the page and watch it. Read the notes.
 2. Press **Record take**. After the 3-2-1 countdown, perform the sign once. Recording
    stops at 16 real frames (about 2 seconds) or the three-second safety deadline.
-   Start from rest, sign, and return to rest. If the FPS warning appears or timing fails,
+   Start with the signing hand already raised beside the shoulder, away from the face
+   (not from rest), then sign. If the FPS warning appears or timing fails,
    **Keep** is disabled: discard, close other apps, improve lighting, and retry CPU or
    another resolution. Never stretch a slow/incomplete take or duplicate frames.
 3. Press **Keep** if the sign was correct and the hands were visible. Otherwise press
