@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON } from '../lib/api.js';
-import { CROSS_PERSON_CHECK, EVENT, TEAM } from '../content.js';
+import { CROSS_PERSON_CHECK, EVENT, PROJECT, TEAM, TEAM_NAME } from '../content.js';
 
 const pct = v => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : '–');
 const f2 = v => (typeof v === 'number' ? v.toFixed(2) : '–');
@@ -87,7 +87,7 @@ export default function About() {
   useEffect(() => { getJSON('/api/model').then(setModel).catch(err => setError(err.message)); }, []);
   return (
     <div className="page">
-      <h1>About SignSpeak</h1>
+      <h1>About {PROJECT}</h1>
       <div className="grid-2">
         <section className="card">
           <h2>Why</h2>
@@ -124,10 +124,10 @@ export default function About() {
             not stored. Recordings used for training were made by consenting volunteers under pseudonyms.</p>
         </section>
         <section className="card">
-          <h2>Team</h2>
+          <h2>Team {TEAM_NAME}</h2>
           <p className="muted">{EVENT}</p>
-          <ul>{TEAM.map(t => <li key={t.name}><a href={t.url} target="_blank" rel="noreferrer">{t.name}</a>, {t.role}</li>)}</ul>
-          <p className="muted small">Built with Google MediaPipe, FastAPI and scikit-learn; speech made with edge-tts. Sign references: ISLRTC videos, linked, not copied. AI assistants (ChatGPT/Codex,
+          <ul>{TEAM.map(t => <li key={t.name}>{t.name}, {t.role}</li>)}</ul>
+          <p className="muted small">Built with Google MediaPipe, FastAPI and scikit-learn; speech made with edge-tts. Sign references: ISLRTC videos, linked, not copied. AI assistants (OpenAI Codex, ChatGPT,
             Claude Code) helped write the code and documentation; people verified the signs and recorded the data.</p>
         </section>
       </div>

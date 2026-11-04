@@ -1,4 +1,4 @@
-# SignSpeak
+# SignSpeak Local
 
 SignSpeak recognises a few Indian Sign Language (ISL) signs from your webcam and shows
 their meaning as text and speech in English, Kannada, Hindi or Tamil. Every sign was
@@ -163,7 +163,7 @@ Test data is synthetic geometry labelled `SYNTH_*`. It is never ISL data and say
 
 ## AI tool disclosure
 
-SignSpeak was built with AI coding assistants: **OpenAI Codex/ChatGPT** (Phases 1–2) and
+SignSpeak was built with AI coding assistants: **OpenAI Codex** and **ChatGPT** (Phases 1–2), and
 **Claude Code (Anthropic)** (Phase 3 onward: web app, live recognition pipeline, training,
 speech, deployment, tests and docs). The Kannada, Hindi and Tamil translations were drafted
 by AI. People did what an AI can't: verifying each sign against the official video,
@@ -171,7 +171,11 @@ recording the data with consent, and judging how it works live.
 
 ## Team
 
-TEAM_NAMES_HERE
+**Team Sin-Tax** · Project: **SignSpeak Local** · Hackathon track: **Human Impact**
+
+- **Aditya Arun Karadi** — AI/ML Development, Dataset Collection, Model Testing & Integration
+- **Chinmay Rajendra** — Full-Stack Development, System Architecture & Deployment
+- **Aryan KL** — UI/UX Design, Quality Assurance & Documentation
 
 ## More
 

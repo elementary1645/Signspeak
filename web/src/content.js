@@ -1,8 +1,10 @@
-// Editable site content. TEAM: replace with real names and roles (people's own choice of
-// how to be credited). These GitHub accounts are the ones in the repository history.
+// Add only team-provided names and roles (people's own choice of how to be credited).
+export const PROJECT = 'SignSpeak Local';
+export const TEAM_NAME = 'Sin-Tax';
 export const TEAM = [
-  { name: 'elementary1645', role: 'Repository owner', url: 'https://github.com/elementary1645' },
-  { name: 'Chinmay1881', role: 'Contributor', url: 'https://github.com/Chinmay1881' },
+  { name: 'Aditya Arun Karadi', role: 'AI/ML Development, Dataset Collection, Model Testing & Integration' },
+  { name: 'Chinmay Rajendra', role: 'Full-Stack Development, System Architecture & Deployment' },
+  { name: 'Aryan KL', role: 'UI/UX Design, Quality Assurance & Documentation' },
 ];
 export const EVENT = 'Human Impact track · hackathon, 2–4 November 2026';
 
