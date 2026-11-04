@@ -44,8 +44,10 @@ start.
 ## 4. NONE: 16 kept takes
 
 Choose **NONE: not a sign**. The page shows a prompt for each take (rest, scratching your
-head, adjusting glasses, half a sign, chatting, and so on). Follow it naturally until
-recording stops. The prompt changes by itself after each kept take. These takes teach the
+head, adjusting glasses, half a sign, chatting, holding your hand raised and still, reaching
+out slowly, and so on). Follow it naturally until recording stops. The prompt changes by
+itself after each kept take. If the team lead asks for a particular prompt, pick it in the
+**NONE prompt** menu. These takes teach the
 model when not to answer, so they matter as much as the signs.
 
 ## 5. Finish

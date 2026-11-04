@@ -240,6 +240,19 @@ def test_take_validation(registry):
             validate_take(bad)
 
 
+def test_none_prompts_hold_and_reach_added_and_old_ids_still_valid(no_model):
+    from backend.live.takes import NONE_PROMPT_IDS
+    old = {'rest', 'scratch', 'adjust', 'random', 'half', 'transition', 'chat', 'phone'}
+    assert old | {'hold', 'reach'} == NONE_PROMPT_IDS
+    for prompt in sorted(NONE_PROMPT_IDS):  # every prompt, old and new, validates on a NONE take
+        meta, _ = validate_take(dict(X.take('NONE', 'synthA', kind='still'), none_prompt=prompt))
+        assert meta['none_prompt'] == prompt
+    served = {p['id']: p['text'] for p in no_model.get('/api/config').json()['none_prompts']}
+    assert set(served) == NONE_PROMPT_IDS
+    assert served['hold'].startswith('Raise your hand beside your shoulder and hold it still')
+    assert served['reach'] == 'Hold your hand out in front of you and move it slowly, no sign.'
+
+
 def test_merge_rejects_duplicates_and_malformed(tmp_path):
     a = X.take('NONE', 'synthA', kind='none', seed=1)
     b = X.take('NONE', 'synthA', kind='still', seed=2)

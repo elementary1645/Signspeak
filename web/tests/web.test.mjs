@@ -537,3 +537,25 @@ test('translate debug log: newest first, capped, browser-uncertain bursts merge,
   assert.equal(log.length, 2);
   assert.equal(log[0].reason, 'stale-tracker-result · session reset');
 });
+
+test('timing notice: re-reading right after a reset, FPS warning only outside the contract', async () => {
+  const { REREAD_MS, timingNotice } = await import('../src/lib/translateState.js');
+  const base = { code: 'INSUFFICIENT_TIMING', minFps: 7, maxFps: 9.5 };
+  assert.equal(timingNotice({ ...base, sinceResetMs: 400, fps: 8.1 }), 'rereading');
+  assert.equal(timingNotice({ ...base, sinceResetMs: REREAD_MS - 1, fps: 4 }), 'rereading');
+  assert.equal(timingNotice({ ...base, sinceResetMs: REREAD_MS, fps: 8.1 }), null);
+  assert.equal(timingNotice({ ...base, sinceResetMs: Infinity, fps: 6.9 }), 'fps');
+  assert.equal(timingNotice({ ...base, sinceResetMs: Infinity, fps: 9.6 }), 'fps');
+  assert.equal(timingNotice({ ...base, sinceResetMs: Infinity, fps: 7 }), null);
+  assert.equal(timingNotice({ ...base, sinceResetMs: Infinity, fps: null }), null);
+  assert.equal(timingNotice({ code: 'INSUFFICIENT_TIMING', sinceResetMs: Infinity, fps: 6 }), 'fps'); // defaults 7–9.5
+  assert.equal(timingNotice({ ...base, code: 'UNCERTAIN_HANDS', sinceResetMs: 10, fps: 3 }), null);
+});
+
+test('translate debug log keeps the UNKNOWN top label and confidence', async () => {
+  const { fromPrediction } = await import('../src/lib/predictionLog.js');
+  const row = fromPrediction({ state: 'UNKNOWN', label: null, confidence: 0.48, margin: 0.05, top_label: 'THANK_YOU',
+    top_confidence: 0.48, detail: 'low confidence', t_ms: 5 });
+  assert.deepEqual([row.label, row.topLabel, row.topConfidence, row.reason], [null, 'THANK_YOU', 0.48, 'low confidence']);
+  assert.deepEqual([fromPrediction({ state: 'NO_HAND' }).topLabel, fromPrediction({ state: 'NO_HAND' }).topConfidence], [null, null]);
+});

@@ -9,6 +9,9 @@ export function fromPrediction(message) {
     confidence: typeof message.confidence === 'number' ? message.confidence : null,
     margin: typeof message.margin === 'number' ? message.margin : null,
     reason: message.code || message.detail || null, event: message.event ?? null, count: 1,
+    // UNKNOWN only: what the classifier ranked first (NONE or a sign below threshold). Display only.
+    topLabel: message.top_label ?? null,
+    topConfidence: typeof message.top_confidence === 'number' ? message.top_confidence : null,
   };
 }
 

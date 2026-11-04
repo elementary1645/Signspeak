@@ -25,6 +25,10 @@ NONE_PROMPTS = (
     {'id': 'transition', 'text': 'Raise your hands into signing position, then lower them.'},
     {'id': 'chat', 'text': 'Gesture casually, as if chatting with a friend.'},
     {'id': 'phone', 'text': 'Pretend to check your phone.'},
+    # Added after collection started (ids only grow; older takes stay valid): every sign take starts
+    # with the hand raised, so a still raised or held-out hand must also be shown as NOT a sign.
+    {'id': 'hold', 'text': "Raise your hand beside your shoulder and hold it still, like you are about to sign, but don't sign."},
+    {'id': 'reach', 'text': 'Hold your hand out in front of you and move it slowly, no sign.'},
 )
 NONE_PROMPT_IDS = {p['id'] for p in NONE_PROMPTS}
 

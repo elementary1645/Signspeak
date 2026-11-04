@@ -94,7 +94,12 @@ can add mirrored copies with `--mirror-augment`).
 
 Choose **NONE: not a sign**. The page shows a prompt (rest, scratching your head, adjusting
 glasses, random movement, half a sign, raising hands into position, casual chatting,
-checking a phone). Follow it naturally until recording stops. NONE teaches the model when
+checking a phone, **hold**: hand raised beside the shoulder and held still, **reach**: hand
+held out in front and moved slowly). Follow it naturally until recording stops. The
+**NONE prompt** menu cycles automatically by default. You can also pick one prompt (it shows
+how many takes you kept with each), for example to record extra `hold` and `reach` takes.
+Every sign take starts with the hand raised, so a still raised hand must also be shown as
+not a sign. NONE teaches the model when
 **not** to output anything, so these takes matter as much as the signs.
 
 ## Finish (2 min)

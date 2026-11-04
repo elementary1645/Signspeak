@@ -201,7 +201,8 @@ class Session:
                                       'confidence': p['confidence']}, now)
         base.update(confidence=p['confidence'], margin=p['margin'], latency_ms={'model': p['model_latency_ms']})
         if p['label'] is None:  # NONE won or below thresholds: never displayed
-            return dict(base, state='UNKNOWN', detail='not a known sign' if p['reason'] == 'none' else 'low confidence')
+            return dict(base, state='UNKNOWN', top_label=p['top_label'], top_confidence=p['confidence'],  # diagnostics only
+                        detail='not a known sign' if p['reason'] == 'none' else 'low confidence')
         return dict(base, state='RECOGNIZED' if out['stable'] else 'RECOGNIZING', label=p['label'], event=out['event'])
 
 

@@ -6,7 +6,7 @@ import { RecognizerClient, wsUrl } from '../lib/recognizerClient.js';
 import { LANGUAGES, getJSON, meaningOf, readLanguage, saveLanguage } from '../lib/api.js';
 import { InfoIcon, ReplayIcon, SpeakerIcon } from '../lib/icons.jsx';
 import { Speaker, readAutoSpeak, saveAutoSpeak } from '../lib/speech.js';
-import { viewState, STATE_TEXT } from '../lib/translateState.js';
+import { viewState, STATE_TEXT, REREADING_TEXT, timingNotice } from '../lib/translateState.js';
 import { appendLog, fromBrowserUncertain, fromPrediction } from '../lib/predictionLog.js';
 
 const TRANSPORT_TEXT = {
@@ -26,6 +26,7 @@ export default function Translate({ link }) {
   const [announcement, setAnnouncement] = useState('');
   const [lastError, setLastError] = useState(null);
   const [predictionLog, setPredictionLog] = useState([]); // local debug readout only
+  const resetAtRef = useRef(-Infinity); // performance.now() of the last session reset (display only)
   const clientRef = useRef(null);
   const speakerRef = useRef(null);
   const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak);
@@ -64,6 +65,7 @@ export default function Translate({ link }) {
     setBackendDown(false);
     setResult(message);
     setPredictionLog(log => appendLog(log, fromPrediction(message)));
+    if (message.code === 'UNCERTAIN_HANDS') resetAtRef.current = performance.now(); // the server reset its window
     if (typeof message.t_ms === 'number') setRtt(performance.now() - message.t_ms);
     if (message.event) {
       const meaning = meaningOf(translationsRef.current, message.event, langRef.current);
@@ -77,6 +79,7 @@ export default function Translate({ link }) {
   const policyMismatch = !!status?.ready && status.model?.schema === 'hp-v2-8fps' && !policyMatches(status.model?.hand_validation);
   readyRef.current = !!status?.ready && !policyMismatch;
   const onUncertain = useCallback(details => {
+    resetAtRef.current = performance.now();
     clientRef.current?.reset(details.t_ms);
     speakerRef.current?.stop();
     if (readyRef.current) setResult({ type: 'prediction', state: 'UNCERTAIN_HANDS', code: 'UNCERTAIN_HANDS', label: null });
@@ -114,6 +117,9 @@ export default function Translate({ link }) {
     detail: 'Browser and model observation policies differ. Rebuild/restart both before recognition.' } : status;
   const view = viewState({ camStatus: cam.status, transport: transport.mode, status: displayStatus, result, backendDown });
   const shown = view.state === 'RECOGNIZED' ? result?.label : null;
+  const contract = status?.model?.temporal || {};
+  const notice = timingNotice({ code: result?.code, sinceResetMs: performance.now() - resetAtRef.current,
+    fps: cam.stats.fps, minFps: contract.minFps, maxFps: contract.maxFps });
   const supported = status?.ready ? status.model?.labels || [] : [];
   const unchecked = label => lang !== 'en' && translations[label]?.needs_native_check;
 
@@ -134,7 +140,8 @@ export default function Translate({ link }) {
         <div>
           {status?.ready && <p className="muted">Model: {status.model?.schema} · {status.model?.window} frames at {status.model?.fps} FPS.</p>}
           {result?.code === 'UNCERTAIN_HANDS' && <p className="notice warn" role="status">Hand detection is uncertain. Recognition is paused; inspect the camera diagnostics.</p>}
-          {result?.code === 'INSUFFICIENT_TIMING' && <p className="notice warn" role="status">Tracking FPS is insufficient or uneven. {result.detail}</p>}
+          {notice === 'rereading' && <p className="notice" role="status">{REREADING_TEXT}</p>}
+          {notice === 'fps' && <p className="notice warn" role="status">Tracking FPS is insufficient or uneven ({cam.stats.fps.toFixed(1)} fps). {result.detail}</p>}
           <CameraView cam={cam} label="Mirrored camera preview with hand and upper-body tracking" />
           <p className="hint muted"><InfoIcon className="icon" style={{ width: 22, height: 22, flex: 'none' }} />
             Sit so your hands and shoulders are in view. Make the sign, then hold it for about a second.</p>
@@ -210,7 +217,7 @@ export default function Translate({ link }) {
                         <td>{p.t_ms != null ? (p.t_ms / 1000).toFixed(2) : '–'}</td>
                         <td>{p.source}{p.count > 1 ? ` ×${p.count}` : ''}</td>
                         <td>{p.state}{p.event ? ' · emitted' : ''}</td>
-                        <td>{p.label || '–'}</td>
+                        <td>{p.label || (p.topLabel ? `– (top: ${p.topLabel} ${p.topConfidence != null ? p.topConfidence.toFixed(3) : ''})` : '–')}</td>
                         <td>{p.confidence != null ? p.confidence.toFixed(3) : '–'}</td>
                         <td>{p.margin != null ? p.margin.toFixed(3) : '–'}</td>
                         <td>{p.reason || '–'}</td>

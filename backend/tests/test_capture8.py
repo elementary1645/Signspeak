@@ -91,7 +91,7 @@ class RecordingModel:
         self.windows = []
     def predict(self, window):
         self.windows.append(window.copy())
-        return dict(label=None, confidence=0.5, margin=0.0, model_latency_ms=0, reason='none')
+        return dict(label=None, confidence=0.5, margin=0.0, model_latency_ms=0, reason='none', top_label='NONE')
 
 
 def session():
@@ -107,6 +107,7 @@ def test_live_waits_for_all_16_source_frames_and_uses_training_representation(mo
         assert s.push(f)['state'] == 'DETECTING'
     reply = s.push(raw['frames'][15])
     assert reply['state'] == 'UNKNOWN'
+    assert (reply['top_label'], reply['top_confidence'], reply['label']) == ('NONE', 0.5, None)  # diagnostics only
     assert len(model.windows) == 1
     expected = train.build_windows([validate_take(raw)], feature_schema=F8.SCHEMA)['x'][0]
     assert np.array_equal(F8.summarize(model.windows[0]), expected)

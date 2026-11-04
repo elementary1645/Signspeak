@@ -101,7 +101,10 @@ export default function Collect() {
   const mine = useMemo(() => takes.filter(t => t.signer_id === signer), [takes, signer]);
   const countFor = l => mine.filter(t => t.label === l && t.capture_protocol === protocol).length;
   const prompts = config?.none_prompts || [];
-  const nonePrompt = prompts.length ? prompts[countFor(noneLabel) % prompts.length] : null;
+  const [promptChoice, setPromptChoice] = useState('auto'); // 'auto' cycles; otherwise a prompt id
+  const keptWithPrompt = id => mine.filter(t => t.label === noneLabel && t.capture_protocol === protocol && t.none_prompt === id).length;
+  const chosenPrompt = promptChoice === 'auto' ? null : prompts.find(p => p.id === promptChoice);
+  const nonePrompt = chosenPrompt || (prompts.length ? prompts[countFor(noneLabel) % prompts.length] : null);
   const policyCompatible = policyMatches(config?.hand_validation);
   const ready = policyCompatible && cam.status === 'running' && PSEUDONYM.test(signer) && PSEUDONYM.test(session) && consent && label;
   const labels = [...signs.map(s => s.label), noneLabel];
@@ -283,6 +286,14 @@ export default function Collect() {
             <option value={noneLabel}>{noneLabel}: not a sign</option>
           </select>
         </label>
+        {isNone && prompts.length > 0 && (
+          <label className="field">NONE prompt
+            <select aria-label="NONE prompt" value={promptChoice} onChange={e => setPromptChoice(e.target.value)} disabled={phase !== 'idle'}>
+              <option value="auto">Cycle automatically (next: {prompts[countFor(noneLabel) % prompts.length].id})</option>
+              {prompts.map(p => <option key={p.id} value={p.id}>{p.id}: {p.text} · {keptWithPrompt(p.id)} kept</option>)}
+            </select>
+          </label>
+        )}
         {!signs.length && config && <p className="notice warn">No sign has an official reference link yet. A teammate must add one first
           (docs/HOW_TO_VERIFY_A_SIGN.md, step 2). You can still record NONE takes.</p>}
         {sign && (
