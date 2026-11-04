@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON } from '../lib/api.js';
-import { EVENT, TEAM } from '../content.js';
+import { CROSS_PERSON_CHECK, EVENT, TEAM } from '../content.js';
 
 const pct = v => (typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : '–');
 const f2 = v => (typeof v === 'number' ? v.toFixed(2) : '–');
@@ -42,7 +42,41 @@ function ModelPanel({ model }) {
           </tbody>
         </table>
       </div>
-      <p className="muted small">All numbers come from the training run’s metrics.json. Each window is 1.6 seconds of movement. Thresholds were tuned on validation folds only.</p>
+      <p className="muted small">The numbers above come from the training run’s metrics.json.
+        {model.window_frames && model.fps ? ` Each window is ${model.window_frames} frames at ${model.fps} FPS (about ${(model.window_frames / model.fps).toFixed(1)} seconds).` : ''}
+        {model.threshold_source?.tuned_on === 'leave-one-signer-out'
+          ? ' Rejection thresholds were tuned on cross-person predictions and scored on the same predictions, so no independent test remains.'
+          : ' Rejection thresholds were tuned on validation folds.'}</p>
+      <CrossPerson model={model} />
+    </>
+  );
+}
+
+function CrossPerson({ model }) {
+  const check = CROSS_PERSON_CHECK;
+  const pooled = model.threshold_source?.loso;
+  if (model.trained_at !== check.trained_at) {
+    return <p className="notice small">The cross-person check in the model card was run for an earlier model, so it is not shown here.</p>;
+  }
+  return (
+    <>
+      <h3 style={{ marginTop: 18 }}>Tested on the other person</h3>
+      <p>With only 2 signers, the fairest test we have is to train on one person and test on the other. The algorithm and
+        thresholds were chosen without the tested person. Two people are not enough to measure accuracy for new signers in general.</p>
+      <div className="table-wrap">
+        <table className="table">
+          <caption className="sr-only">Leave-one-signer-out check of run {check.run}</caption>
+          <thead><tr><th scope="col">Fold</th><th scope="col" className="num">Macro-F1</th><th scope="col" className="num">Signs recognised</th><th scope="col" className="num">Non-signs shown as a sign</th></tr></thead>
+          <tbody>
+            {check.folds.map(f => (
+              <tr key={f.name}><th scope="row">{f.name}</th><td className="num">{f.macroF1}</td><td className="num">{f.signs}</td><td className="num">{f.noneAccepted}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">The main failure for a new person is a non-sign accepted as a sign, mostly as HELLO.
+        {pooled ? ` With the deployed algorithm and thresholds on the same split, ${pooled.pooled.none_false_accept[0]} of ${pooled.pooled.none_false_accept[1]} non-signs were shown as a sign (pooled macro-F1 ${pooled.pooled.macro_f1.toFixed(3)}), but those thresholds were tuned on the same predictions, so that figure is optimistic.` : ''}
+        {' '}Details: docs/MODEL_CARD.md, run {check.run}.</p>
     </>
   );
 }
@@ -60,13 +94,16 @@ export default function About() {
           <p>Millions of Deaf people in India use Indian Sign Language, but few hearing people know it, and certified interpreters are scarce.
             SignSpeak is a small step towards everyday conversations, such as at a counter, a clinic reception or a classroom, where a few
             common signs shown as text and speech in a local language help.</p>
-          <p>We started with a handful of signs and did them carefully. Each one is checked against the official ISLRTC dictionary,
-            recorded with consent and tested on people the model has not seen.</p>
+          <p>We started with a handful of signs and did them carefully. Each one is checked against the official ISLRTC dictionary
+            and recorded with consent by pseudonymous volunteers. So far two people have recorded, so we can only test each
+            person on a model trained on the other.</p>
         </section>
         <section className="card">
           <h2>Limits</h2>
           <ul>
-            <li>Small vocabulary. It recognises single, isolated signs, not sentences or ISL grammar.</li>
+            <li>Three signs: HELLO, YES and NO. It recognises single, isolated signs, not sentences or ISL grammar.</li>
+            <li>THANK_YOU was verified and trained, then withdrawn: it was perfect on recorded data but kept failing live.</li>
+            <li>Phones are not supported yet. On the iPhone we tested, tracking ran at about 4 frames a second; the model needs 7 or more. Use Chrome or Edge on a laptop or desktop.</li>
             <li>No facial expressions, so signs that depend on them are excluded.</li>
             <li>Lighting, camera angle and signing style affect it. It can still mistake an unfamiliar movement for a sign.</li>
             <li>Kannada, Hindi and Tamil wording is awaiting a native-speaker check.</li>
@@ -90,7 +127,7 @@ export default function About() {
           <h2>Team</h2>
           <p className="muted">{EVENT}</p>
           <ul>{TEAM.map(t => <li key={t.name}><a href={t.url} target="_blank" rel="noreferrer">{t.name}</a>, {t.role}</li>)}</ul>
-          <p className="muted small">Built with Google MediaPipe, FastAPI and scikit-learn. Sign references: ISLRTC. AI assistants (ChatGPT/Codex,
+          <p className="muted small">Built with Google MediaPipe, FastAPI and scikit-learn; speech made with edge-tts. Sign references: ISLRTC videos, linked, not copied. AI assistants (ChatGPT/Codex,
             Claude Code) helped write the code and documentation; people verified the signs and recorded the data.</p>
         </section>
       </div>

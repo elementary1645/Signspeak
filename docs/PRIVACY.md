@@ -4,9 +4,11 @@
 
 - **Your video never leaves your device.** The camera image is processed in memory by
   MediaPipe running in your browser. No image or video is uploaded, saved or logged.
-- **What is sent:** for each frame (about 15 per second), the positions of up to 2×21 hand
-  points and 33 body points, plus the frame size and a timestamp (the lm-v1 format in
-  `docs/data_schema.md`). It is sent over the same HTTPS origin (WebSocket, or HTTPS
+- **What is sent:** for each frame (about 8 per second with the deployed model), the
+  positions of up to 2×21 hand points (x, y, z, with the tracker's left/right guess and its
+  score) and 33 body points (x, y, z, visibility), plus the frame width and height and a
+  timestamp (the lm-v1 format in `docs/data_schema.md`). The server rejects any frame with
+  other fields. It is sent over the same HTTPS origin (WebSocket, or HTTPS
   POST as a fallback).
 - **What the server keeps:** the last ~3 seconds of points for your connection, in
   memory, to recognise the current sign. It is discarded when you disconnect (POST
@@ -15,7 +17,8 @@
 - **Speech:** pre-generated audio contains only the dictionary meaning (e.g. "Water").
   If no audio file exists, your browser's own speech engine speaks the meaning. Some
   browsers send that text to their vendor's online voice service.
-- **Third parties:** the app is hosted on Hugging Face Spaces. The fonts, MediaPipe runtime
+- **Third parties:** the public demo is hosted on Render (a Hugging Face Space is the
+  alternative path). The fonts, MediaPipe runtime
   and models are served from the app itself. There are no analytics or trackers. The
   Learn ISL page embeds official ISLRTC YouTube videos through `youtube-nocookie.com`
   (only for verified signs whose reference is a YouTube video). Opening that page loads

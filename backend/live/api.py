@@ -106,6 +106,8 @@ def model_report(request: Request):
             'held_out_sign_rejection': metrics['held_out_sign_rejection'],
             'evaluated_windows': metrics['evaluated_windows'],
             'latency': metrics.get('latency'),  # absent in bundles trained before --max-latency-ms
+            'window_frames': bundle.get('window'), 'fps': bundle.get('fps'),
+            'threshold_source': metrics.get('threshold_source'),  # incl. the pooled leave-one-signer-out check, if run
         }
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(500, f'metrics.json is unreadable: {type(exc).__name__}') from exc

@@ -13,7 +13,7 @@ function Diagram() {
     <svg className="diagram" viewBox="0 0 960 380" role="img" aria-labelledby="dia-title dia-desc">
       <title id="dia-title">SignSpeak pipeline</title>
       <desc id="dia-desc">In the browser: camera, MediaPipe hand and pose tracking, landmark points. These points travel over a
-        WebSocket to the Python server, which computes hp-v1 features, runs the classifier with NONE and confidence rejection,
+        WebSocket to the Python server, which computes hp-v2-8fps features, runs the classifier with NONE and confidence rejection,
         and smooths the result with a stabilizer. The result returns to the browser as text and speech.</desc>
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -27,10 +27,10 @@ function Diagram() {
 
       <Box x={20} y={50} title="Camera" sub="video in memory only" browser />
       <Box x={250} y={50} title="MediaPipe" sub="2 hands + upper body" browser />
-      <Box x={480} y={50} title="Landmarks" sub="~75 points, 15 per second" browser />
+      <Box x={480} y={50} title="Landmarks" sub="~75 points, 8 per second" browser />
       <Box x={750} y={50} w={190} title="Text and speech" sub="meaning in 4 languages" browser />
 
-      <Box x={20} y={262} title="hp-v1 features" sub="1.6 s window: shape, motion" />
+      <Box x={20} y={262} title="hp-v2-8fps features" sub="2 s window: shape, motion" />
       <Box x={250} y={262} title="Classifier" sub="+ NONE and threshold reject" />
       <Box x={480} y={262} title="Stabilizer" sub="steady, once per sign" />
 
@@ -59,10 +59,10 @@ export default function HowItWorks() {
       <ol className="steps">
         <li><strong>Your camera stays on your device.</strong> The video is processed in memory by your browser and is never uploaded or saved.</li>
         <li><strong>MediaPipe finds your hands and upper body.</strong> Google’s open-source trackers, running in your browser, mark 21 points
-          on each hand and the shoulders, elbows, wrists and nose, about 15 times a second.</li>
+          on each hand and the shoulders, elbows, wrists and nose, about 8 times a second.</li>
         <li><strong>Only the points are sent.</strong> They go to the SignSpeak server over a WebSocket (or plain HTTPS if WebSockets are blocked).</li>
-        <li><strong>The server describes the movement.</strong> It looks at the last 1.6 seconds: each hand’s shape, where the hands are relative to
-          your shoulders, and how they move. This is the hp-v1 feature set, and training uses exactly the same code.</li>
+        <li><strong>The server describes the movement.</strong> It looks at the last 16 frames (about 2 seconds): each hand’s shape, where the hands are relative to
+          your shoulders, and how they move. This is the hp-v2-8fps feature set, and training uses exactly the same code.</li>
         <li><strong>A classifier picks a sign, or refuses to.</strong> It was trained on recordings of verified signs plus a “NONE” class of resting,
           fidgeting and half-finished movements. If NONE wins, or the model isn’t confident enough, the answer is “not a known sign”.</li>
         <li><strong>A stabilizer waits for a steady answer.</strong> The same sign must win several times in a row before it is shown, and a sign you

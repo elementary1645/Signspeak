@@ -14,14 +14,17 @@ interchanged. See `docs/data_schema.md` and `docs/PHASE3_LOWER_FPS_PROTOCOL.md`.
 **Model.** A CPU scikit-learn classifier, chosen from RandomForest, ExtraTrees,
 LogisticRegression and RBF-SVM by grouped out-of-fold macro-F1. A reserved NONE class
 (rest, idle, transitions, random movement) is trained with the signs. A prediction is
-shown only if NONE does not win and confidence and margin pass thresholds tuned on
-validation folds.
+shown only if NONE does not win and confidence and margin pass tuned thresholds. With
+fewer than 3 signers the deployed thresholds are tuned on pooled leave-one-signer-out
+predictions (`--threshold-source loso`), otherwise on validation folds.
 
 **Data.** Only takes recorded on `/collect` by consenting, pseudonymous signers, for signs
 a human verified against an exact official ISLRTC reference. No external dataset is used.
 
 **Known limitations.**
 - No face landmarks, so signs that need facial grammar or mouthing are excluded.
+- Three signs (HELLO, YES, NO) from 2 signers; THANK_YOU was withdrawn after failing live
+  (see run #4 below).
 - A small vocabulary with few signers: expect errors with new people, lighting, cameras
   and backgrounds. Any unfamiliar movement can still be confidently misread as a sign.
 - The trainer measures unseen-signer accuracy only with at least 3 signers
