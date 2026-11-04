@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from backend.app import dataset, main
-from backend.app.vocabulary import verified_entries
+from backend.app.vocabulary import check_reference_url, verified_entries
 from backend.live import api, features as F, service, vocab
 from backend.live.model import LiveModel, decide
 from backend.live.protocol import validate_frame, validate_frames
@@ -184,10 +184,23 @@ def test_hands_v1_gate_ignores_hp_v1_entries(registry):
     assert dataset.vocabulary() == {}
 
 
-def test_real_registry_has_only_unverified_candidates():
+REAL_VERIFIED = {'HELLO', 'THANK_YOU', 'YES', 'NO'}
+
+
+def test_real_registry_verifies_exactly_hello_thank_you_yes_no():
     entries = json.loads((dataset.ROOT / 'data/metadata/vocabulary.json').read_text(encoding='utf-8'))
-    assert entries and all(e['verified'] is False for e in entries)
-    assert vocab.verified(entries) == {}
+    assert entries
+    assert {e['label'] for e in entries if e['verified'] is True} == REAL_VERIFIED
+    assert all(e['verified'] is False for e in entries if e['label'] not in REAL_VERIFIED)
+    admitted = vocab.verified(entries)
+    assert set(admitted) == REAL_VERIFIED
+    for e in entries:
+        if e['label'] in REAL_VERIFIED:
+            review = vocab.LiveSignReview.model_validate(e)  # raises if any human answer is missing
+            assert review.official_source_confirmed is True and review.human_inspected is True
+            check_reference_url(review.reference_url)  # one exact official entry, not an index/channel
+            assert admitted[e['label']]['reference_url'] == e['reference_url']
+    assert verified_entries(entries) == {}  # hands-v1 gate still ignores hp-v1 entries
     translations = json.loads((dataset.ROOT / 'data/metadata/translations.json').read_text(encoding='utf-8'))
     for e in entries:
         t = translations[e['label']]
