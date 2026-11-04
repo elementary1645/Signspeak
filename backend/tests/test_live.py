@@ -301,6 +301,50 @@ def test_training_with_few_signers_warns_generalisation_not_measured(registry, t
     assert m['held_out_sign_rejection'] == 'needs >= 2 verified signs'
 
 
+def test_threshold_source_loso_tunes_on_cross_signer_predictions(registry, tmp_path):
+    """Two signers: loso changes only the deployed thresholds, tuned on leave-one-signer-out predictions."""
+    from backend.live import train as T
+    path = write_takes(tmp_path / 'takes.jsonl', synthetic_takes(signers=('synthA', 'synthB'), per=4))
+    quiet = dict(candidates=('logistic_regression',), log=lambda *_: None)
+    _, grouped = train(path, tmp_path / 'g', model_card=None, **quiet)
+    bundle, loso = train(path, tmp_path / 'l', model_card=tmp_path / 'CARD.md', threshold_source='loso', **quiet)
+    assert grouped['scheme'].startswith('grouped-by') and loso['scheme'] == grouped['scheme']
+    assert grouped['threshold_source'] == {'requested': 'grouped', 'tuned_on': grouped['scheme'],
+                                           'grouped_thresholds': grouped['thresholds']}
+    # Recompute independently: each signer predicted by a model trained on the other signer only.
+    data = T.build_windows(T.load_takes(path))
+    labels = [*SIGNS, 'NONE']
+    p = np.full((len(data['y']), len(labels)), np.nan)
+    for signer in ('synthA', 'synthB'):
+        tr, te = data['signer'] != signer, data['signer'] == signer
+        model = T.CANDIDATES['logistic_regression']().fit(data['x'][tr], data['y'][tr])
+        p[te] = T.aligned_proba(model, data['x'][te], labels)
+    expected = T.tune(p, data['y'], labels)
+    assert bundle['thresholds'] == loso['thresholds'] == expected
+    assert bundle['threshold_source'] == {'requested': 'loso', 'tuned_on': 'leave-one-signer-out'}
+    source = loso['threshold_source']
+    assert source['grouped_thresholds'] == grouped['thresholds'] and source['loso']['caveat'] == T.LOSO_CAVEAT
+    assert set(source['loso']['per_signer']) == {'synthA', 'synthB'}
+    assert source['loso']['pooled']['windows'] == sum(r['windows'] for r in source['loso']['per_signer'].values())
+    # The reported (grouped) evaluation is unchanged; only the deployed thresholds moved.
+    assert loso['open_set_with_rejection'] == grouped['open_set_with_rejection']
+    saved = json.loads((tmp_path / 'l/metrics.json').read_text())
+    assert saved['bundle']['threshold_source']['tuned_on'] == 'leave-one-signer-out'
+    assert saved['metrics']['threshold_source']['loso']['thresholds'] == expected
+    LiveModel(tmp_path / 'l/model.joblib', vocab.verified())  # the server accepts the bundle
+    card = (tmp_path / 'CARD.md').read_text(encoding='utf-8')
+    assert '`--threshold-source loso`' in card and 'leave-one-signer-out' in card and T.LOSO_CAVEAT in card
+
+
+def test_threshold_source_loso_needs_two_signers_and_valid_choice(registry, tmp_path):
+    path = write_takes(tmp_path / 'takes.jsonl', synthetic_takes(signers=('synthA',), per=4))
+    quiet = dict(candidates=('logistic_regression',), model_card=None, log=lambda *_: None)
+    with pytest.raises(TrainingError, match='at least 2 signers'):
+        train(path, tmp_path / 'm', threshold_source='loso', **quiet)
+    with pytest.raises(TrainingError, match='Unknown threshold source'):
+        train(path, tmp_path / 'm', threshold_source='same-person', **quiet)
+
+
 def test_decide_never_returns_none_class():
     labels = ['NONE', 'SYNTH_A', 'SYNTH_B']
     t = {'min_confidence': 0.6, 'min_margin': 0.2}

@@ -9,6 +9,10 @@
 - Candidates (RF, ExtraTrees, LogisticRegression, SVM) are compared by out-of-fold macro-F1.
 - min_confidence/min_margin are tuned on out-of-fold (validation) predictions only;
   the reported open-set metrics use thresholds tuned without the evaluated fold.
+- --threshold-source loso (fewer than 3 signers): the DEPLOYED thresholds are tuned instead on
+  pooled leave-one-signer-out predictions of the chosen algorithm (each signer predicted by a
+  model trained on the others). Tuned and scored on the same predictions: no independent
+  test remains. With >= 3 signers the folds are already leave-one-signer-out.
 - Labels must be human-verified hp-v1 vocabulary (NONE is the only exception).
 """
 import argparse
@@ -177,6 +181,52 @@ def none_false_accept(y_true, y_pred):
     return float((y_pred[none] != vocab.NONE_LABEL).mean()) if none.any() else None
 
 
+THRESHOLD_SOURCES = ('grouped', 'loso')
+LOSO_CAVEAT = 'Thresholds were tuned and scored on the same pooled predictions: no independent test remains.'
+
+
+def counts_check(y_true, y_pred):
+    """Exact counts (no rounding) for a thresholded prediction."""
+    none, sign = y_true == vocab.NONE_LABEL, y_true != vocab.NONE_LABEL
+    return {'windows': int(len(y_true)),
+            'none_false_accept': [int((y_pred[none] != vocab.NONE_LABEL).sum()), int(none.sum())],
+            'sign_rejected': [int((y_pred[sign] == vocab.NONE_LABEL).sum()), int(sign.sum())],
+            'sign_correct': [int((y_pred[sign] == y_true[sign]).sum()), int(sign.sum())]}
+
+
+def loso_thresholds(make, data, labels):
+    """Tune thresholds on pooled leave-one-signer-out predictions of one algorithm.
+
+    Each signer's (non-mirrored) windows are predicted by a model trained on every other
+    signer only (mirrored copies follow their signer). Returns the thresholds plus per-signer
+    and pooled counts, which are scored on the same predictions they were tuned on.
+    """
+    signers = sorted(set(data['signer']))
+    if len(signers) < 2:
+        raise TrainingError('--threshold-source loso needs takes from at least 2 signers')
+    evaluate = ~data['mirrored']
+    q = np.full((len(data['y']), len(labels)), np.nan)
+    for signer in signers:
+        train_idx = np.where(data['signer'] != signer)[0]
+        test_idx = np.where((data['signer'] == signer) & evaluate)[0]
+        missing = sorted(set(labels) - set(data['y'][train_idx]))
+        if missing:
+            raise TrainingError(f'--threshold-source loso: without {signer}, the other signers have no takes of {missing}')
+        model = make().fit(data['x'][train_idx], data['y'][train_idx])
+        q[test_idx] = aligned_proba(model, data['x'][test_idx], labels)
+    mask = evaluate & ~np.isnan(q).any(axis=1)
+    thresholds = tune(q[mask], data['y'][mask], labels)
+    pred = thresholded(q[mask], labels, thresholds)
+    y, who = data['y'][mask], data['signer'][mask]
+    per_signer = {}
+    for signer in signers:
+        s = who == signer
+        per_signer[signer] = {'macro_f1': float(f1_score(y[s], pred[s], labels=labels, average='macro', zero_division=0)),
+                              **counts_check(y[s], pred[s])}
+    pooled = {'macro_f1': float(f1_score(y, pred, labels=labels, average='macro', zero_division=0)), **counts_check(y, pred)}
+    return {'thresholds': thresholds, 'per_signer': per_signer, 'pooled': pooled, 'caveat': LOSO_CAVEAT}
+
+
 def measure_latency(name, model, x, repeats=30):
     """Median ms of one single-row predict_proba, the way the live server calls it."""
     rows = [x[i % len(x)][None, :] for i in range(repeats + 5)]
@@ -203,7 +253,9 @@ def feature_latency(frames, repeats=30, feature_schema=features.SCHEMA):
 
 def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverified=False, mirror_augment=False,
           candidates=tuple(CANDIDATES), model_card=MODEL_CARD, log=print, max_latency_ms=DEFAULT_MAX_LATENCY_MS,
-          feature_schema=features.SCHEMA):
+          feature_schema=features.SCHEMA, threshold_source='grouped'):
+    if threshold_source not in THRESHOLD_SOURCES:
+        raise TrainingError(f'Unknown threshold source {threshold_source!r}; choose from {", ".join(THRESHOLD_SOURCES)}')
     temporal = features.for_schema(feature_schema)
     capture_protocol, timing = for_schema(feature_schema)
     takes_path = Path(takes_path)
@@ -267,6 +319,14 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         open_pred[test] = thresholded(p[test], labels, t)
     open_pred = open_pred[evaluated].astype(str)
     thresholds = tune(p[evaluated], y, labels)  # deployed thresholds: all validation predictions
+    threshold_info = {'requested': threshold_source,
+                      'tuned_on': 'leave-one-signer-out' if measured else scheme,
+                      'grouped_thresholds': thresholds}
+    if threshold_source == 'loso' and not measured:
+        # Same-person folds overstate confidence for new people; use cross-person predictions instead.
+        loso = loso_thresholds(CANDIDATES[chosen], data, labels)
+        thresholds = loso['thresholds']
+        threshold_info.update(tuned_on='leave-one-signer-out', loso=loso)
 
     closed_pred = np.array([labels[i] for i in np.argmax(p[evaluated], axis=1)])
     open_set = {}
@@ -284,7 +344,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         'latency': {'ms_per_window': latency, 'feature_ms': round(feature_ms, 3), 'max_latency_ms': max_latency_ms,
                     'excluded_for_latency': excluded, 'measured_on': f'{platform.system()} {platform.machine()} {platform.processor()}'.strip(),
                     'note': 'single-threaded, median of 30 live-style predictions on the training machine'},
-        'thresholds': thresholds, 'fold_thresholds': fold_thresholds,
+        'thresholds': thresholds, 'threshold_source': threshold_info, 'fold_thresholds': fold_thresholds,
         'closed_set': report(y, closed_pred, labels),
         'open_set_with_rejection': report(y, open_pred, labels),
         'none_false_accept_rate': none_false_accept(y, open_pred),
@@ -305,6 +365,7 @@ def train(takes_path=DEFAULT_TAKES, out_dir=DEFAULT_MODEL.parent, drop_unverifie
         'temporal': timing, 'hand_validation': POLICY if feature_schema == 'hp-v2-8fps' else None,
         'window': temporal.WINDOW, 'fps': temporal.FPS, 'model': model, 'labels': [str(c) for c in model.classes_],
         'algorithm': chosen, 'thresholds': thresholds,
+        'threshold_source': {'requested': threshold_source, 'tuned_on': threshold_info['tuned_on']},
         'vocab_fingerprint': vocab.selection_fingerprint(admitted, signs),
         'vocabulary': {s: admitted[s] for s in signs}, 'dataset_sha256': dataset_sha256,
         'counts': counts, 'sklearn_version': sklearn.__version__, 'seed': SEED,
@@ -338,6 +399,20 @@ def write_model_card(path, bundle, metrics):
     held_out = metrics['held_out_sign_rejection']
     held_out_text = (held_out if isinstance(held_out, str) else
                      ', '.join(f"{k}: {v['rejected_rate']:.0%} rejected" for k, v in held_out.items()))
+    source = metrics.get('threshold_source') or {'requested': 'grouped', 'tuned_on': metrics['scheme']}
+    threshold_line = (f"- Thresholds: min_confidence {bundle['thresholds']['min_confidence']}, min_margin {bundle['thresholds']['min_margin']}"
+                      f" · tuned on **{source['tuned_on']}** out-of-fold predictions (`--threshold-source {source['requested']}`)")
+    loso = source.get('loso')
+    if loso:
+        def check(name, r):
+            truncated = int(r['macro_f1'] * 10000) / 10000  # never rounded up
+            return (f"{name} macro-F1 {truncated:.4f}, NONE false-accept {r['none_false_accept'][0]}/{r['none_false_accept'][1]}, "
+                    f"signs rejected {r['sign_rejected'][0]}/{r['sign_rejected'][1]}")
+        g = source['grouped_thresholds']
+        threshold_line += (f" (grouped folds would have chosen {g['min_confidence']} / {g['min_margin']})"
+                           f"\n- Pooled leave-one-signer-out check of these thresholds: "
+                           + '; '.join([check(s, r) for s, r in loso['per_signer'].items()] + [check('pooled', loso['pooled'])])
+                           + f". **{loso['caveat']}**")
     section = f"""<!-- AUTO:BEGIN (written by python -m backend.live.train; do not edit by hand) -->
 ## Latest trained model
 
@@ -347,7 +422,7 @@ def write_model_card(path, bundle, metrics):
 - Labels: {', '.join(bundle['labels'])}
 - Evaluation: **{metrics['scheme']}**{'' if metrics['generalisation_to_unseen_signers_measured'] else ' · **generalisation to unseen signers NOT measured**'}
 - Model comparison (closed-set macro-F1): {', '.join(f'{k} {v:.3f}' for k, v in metrics['model_comparison_closed_set_macro_f1'].items())}
-- Thresholds: min_confidence {bundle['thresholds']['min_confidence']}, min_margin {bundle['thresholds']['min_margin']}
+{threshold_line}
 - Live cost per window (features + model, single-threaded, training machine): {', '.join(f'{k} {v:.1f} ms' for k, v in metrics['latency']['ms_per_window'].items())}; limit {metrics['latency']['max_latency_ms']} ms{'; excluded ' + ', '.join(metrics['latency']['excluded_for_latency']) if metrics['latency']['excluded_for_latency'] else ''}
 - Open-set macro-F1 (with rejection, thresholds tuned without the evaluated fold): {open_set['macro_f1']:.3f}
 - NONE false-accept rate: {metrics['none_false_accept_rate']:.1%} · sign rejection rate: {metrics['sign_rejection_rate']:.1%}
@@ -373,6 +448,9 @@ def main():
     parser.add_argument('--models', default=','.join(CANDIDATES), help=f'comma list from {",".join(CANDIDATES)}')
     parser.add_argument('--max-latency-ms', type=float, default=DEFAULT_MAX_LATENCY_MS,
                         help='exclude models slower than this per live window (features + predict), measured here')
+    parser.add_argument('--threshold-source', choices=THRESHOLD_SOURCES, default='grouped',
+                        help='tune deployed rejection thresholds on the evaluation folds (grouped, default) or, '
+                             'with fewer than 3 signers, on pooled leave-one-signer-out predictions (loso)')
     parser.add_argument('--no-model-card', action='store_true')
     args = parser.parse_args()
     sys.stdout.reconfigure(errors='replace')
@@ -382,10 +460,11 @@ def main():
     try:
         bundle, metrics = train(args.takes, args.out, args.drop_unverified, args.mirror_augment, candidates,
                                 None if args.no_model_card else MODEL_CARD, max_latency_ms=args.max_latency_ms,
-                                feature_schema=args.feature_schema)
+                                feature_schema=args.feature_schema, threshold_source=args.threshold_source)
     except (TrainingError, ValueError, OSError) as exc:
         parser.exit(2, f'Training not run: {exc}\n')
     print(json.dumps({'chosen': bundle['algorithm'], 'thresholds': bundle['thresholds'],
+                      'threshold_source': bundle['threshold_source'],
                       'latency_ms_per_window': metrics['latency']['ms_per_window'],
                       'scheme': metrics['scheme'], 'open_set_macro_f1': metrics['open_set_with_rejection']['macro_f1'],
                       'none_false_accept_rate': metrics['none_false_accept_rate'],

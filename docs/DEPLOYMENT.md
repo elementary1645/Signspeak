@@ -51,7 +51,9 @@ you retrain and republish. `autoDeploy` rebuilds on every push to the branch.
 
 ```powershell
 python -m scripts.merge_takes <downloaded .jsonl files or folders>
-python -m backend.live.train --feature-schema hp-v2-8fps   # must match the takes; the default (hp-v1) refuses 8 FPS takes
+python -m backend.live.train --feature-schema hp-v2-8fps --threshold-source loso
+#   --feature-schema must match the takes (the default hp-v1 refuses 8 FPS takes);
+#   --threshold-source loso tunes rejection on cross-person predictions while there are < 3 signers
 python -m scripts.generate_audio
 $env:HF_TOKEN = "<write token>"; python -m scripts.publish_model
 ```

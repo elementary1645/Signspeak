@@ -34,14 +34,15 @@ a human verified against an exact official ISLRTC reference. No external dataset
 <!-- AUTO:BEGIN (written by python -m backend.live.train; do not edit by hand) -->
 ## Latest trained model
 
-- Trained: 2026-11-04T08:56:03+00:00 · algorithm **svm_rbf** · scikit-learn 1.9.1
+- Trained: 2026-11-04T09:03:58+00:00 · algorithm **svm_rbf** · scikit-learn 1.9.1
 - Data: 144 takes, 2 signers, 2 sessions, 144 windows · dataset sha256 `c7bfbc6bde38e0f2…`
 - Features: hp-v2-8fps · capture protocol hp-v2-8fps-timed-1 · 16 frames at 8 FPS
 - Labels: HELLO, NO, NONE, THANK_YOU, YES
 - Evaluation: **grouped-by-take** · **generalisation to unseen signers NOT measured**
 - Model comparison (closed-set macro-F1): random_forest 0.969, extra_trees 0.981, logistic_regression 0.938, svm_rbf 0.950
-- Thresholds: min_confidence 0.65, min_margin 0.3
-- Live cost per window (features + model, single-threaded, training machine): random_forest 22.5 ms, extra_trees 19.8 ms, logistic_regression 5.4 ms, svm_rbf 6.8 ms; limit 10.0 ms; excluded random_forest, extra_trees
+- Thresholds: min_confidence 0.55, min_margin 0.2 · tuned on **leave-one-signer-out** out-of-fold predictions (`--threshold-source loso`) (grouped folds would have chosen 0.65 / 0.3)
+- Pooled leave-one-signer-out check of these thresholds: signer01 macro-F1 0.8990, NONE false-accept 3/32, signs rejected 5/64; signer02 macro-F1 0.9567, NONE false-accept 1/16, signs rejected 0/32; pooled macro-F1 0.9182, NONE false-accept 4/48, signs rejected 5/96. **Thresholds were tuned and scored on the same pooled predictions: no independent test remains.**
+- Live cost per window (features + model, single-threaded, training machine): random_forest 19.4 ms, extra_trees 20.3 ms, logistic_regression 5.4 ms, svm_rbf 6.8 ms; limit 10.0 ms; excluded random_forest, extra_trees
 - Open-set macro-F1 (with rejection, thresholds tuned without the evaluated fold): 0.944
 - NONE false-accept rate: 10.4% · sign rejection rate: 4.2%
 - Held-out-sign check (model trained without the sign): HELLO: 92% rejected, NO: 62% rejected, THANK_YOU: 100% rejected, YES: 79% rejected
@@ -126,35 +127,19 @@ Run #2 combined confusion matrix (rows = true, columns = predicted):
 - **The trainer's own numbers above** come from grouped-by-take folds with both signers in
   training. They should not be quoted as accuracy for new people.
 
-### Rejection thresholds: proposed, not applied
+### Rejection thresholds (applied)
 
-The deployed bundle (svm_rbf, min_confidence 0.65, min_margin 0.3) has thresholds tuned
-on the trainer's grouped-by-take folds, i.e. on people it was also trained on. To see how
-they behave on new people, each signer's windows were predicted by an svm_rbf trained on
-the **other** signer only, and the trainer's `tune` was run on those pooled predictions.
-They are the only cross-person validation data available.
+The deployed thresholds, **min_confidence 0.55 and min_margin 0.2**, come from the pooled
+leave-one-signer-out search (`--threshold-source loso`). For each signer, an svm_rbf
+trained only on the other signer predicts that signer's windows; the trainer's `tune` then
+runs on the pooled predictions. The same-person grouped folds would have chosen 0.65 / 0.3,
+which on signer01 rejected 17 of 64 sign windows, against 5 of 64 now. On these predictions
+the thresholds add no rejection beyond NONE winning outright.
 
-| svm_rbf, unseen signer | no extra rejection | deployed 0.65 / 0.3 | pooled-LOSO 0.55 / 0.2 | tuned on the other person |
-|---|---|---|---|---|
-| test signer01 | 0.8990 · NONE FA 3/32 · signs rejected 5/64 | 0.7389 · 2/32 · **17/64** | 0.8990 · 3/32 · 5/64 | 0.75 / 0.5: 0.7033 · 1/32 · 20/64 |
-| test signer02 | 0.9567 · 1/16 · 0/32 | 0.9567 · 1/16 · 0/32 | 0.9567 · 1/16 · 0/32 | 0.55 / 0.2: 0.9567 · 1/16 · 0/32 |
-| pooled | 0.9182 · 4/48 · 5/96 | 0.8314 · 3/48 · 17/96 | 0.9182 · 4/48 · 5/96 | — |
-
-(Values are macro-F1 · NONE false-accept · sign windows rejected as NONE.)
-
-- On signer01, the deployed thresholds reject 12 more correct sign windows and catch 1
-  more non-sign.
-- On the pooled predictions, 30 grid settings tie for the best score (0.9182). All have
-  min_confidence ≤ 0.55 and min_margin ≤ 0.2, and all behave like no extra rejection. The
-  trainer's tie rule picks the strictest of them: **0.55 / 0.2**.
-- **No independent test remains after this tuning.** The pooled 0.9182 is scored on the
-  same predictions the thresholds were tuned on, so it is optimistic.
-- Tuning on one person and applying to the other (last column) is the nearest honest
-  check, and it does not transfer reliably. signer02's predictions cannot tell thresholds
-  apart, so the tie rule picks a strict 0.75 / 0.5, which drops signer01 to 0.7033.
-- The fold models were trained on one signer; the deployed model is trained on both and
-  may be more confident on a new person. Rejection on new people mostly comes from the
-  NONE class; on this data the thresholds add nothing measurable.
+**No independent test remains:** the thresholds were tuned and scored on the same pooled
+predictions (pooled macro-F1 0.9182 is optimistic). Tuning on one person and applying to
+the other did not transfer reliably (signer01 fell to 0.7033 with signer02's choice). The
+fold models were trained on one signer, the deployed model on both.
 
 **Required before claiming accuracy:** at least 3 signers, so that the trainer's
 leave-one-signer-out runs.
