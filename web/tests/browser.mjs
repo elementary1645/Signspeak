@@ -73,6 +73,34 @@ try {
   assert.equal(await keep.isDisabled(), true);
   console.log('REJECTED SYNTHETIC CAPTURE:', await page.getByText(/frames over/).textContent());
   assert.ok(await page.getByText(/Timing contract failed:|Uncertain hand detections occurred/).count());
+  // Record controls sit beside the camera preview on a wide screen (UI only).
+  const stageBox = await page.locator('.stage').boundingBox();
+  const panelBox = await page.getByRole('region', { name: 'Record controls' }).boundingBox();
+  assert.ok(panelBox.x >= stageBox.x + stageBox.width - 1, 'record panel should be beside the camera');
+  assert.ok(Math.abs(panelBox.y - stageBox.y) < 40, 'record panel should start level with the camera');
+  assert.ok(await page.getByText('Space: record · K: keep · D: discard', { exact: true }).isVisible());
+  // Shortcuts call the same handlers as the buttons: K cannot keep a rejected take; D discards.
+  await page.locator('body').press('k');
+  assert.equal(await keep.isVisible(), true);
+  assert.equal(await page.getByText(/^Take kept/).count(), 0);
+  await page.locator('body').press('d');
+  await page.getByText('Take discarded.', { exact: true }).waitFor();
+  const recordButton = page.getByRole('button', { name: 'Record take', exact: true });
+  assert.equal(await recordButton.isVisible(), true);
+  // Space is ignored while typing in a text input.
+  await page.getByPlaceholder('e.g. signer07').press('Space');
+  await page.waitForTimeout(300);
+  assert.equal(await recordButton.isVisible(), true);
+  assert.equal(await page.locator('.countdown').count(), 0);
+  // Space records even with Stop camera focused, and must not also click that button.
+  await page.getByRole('button', { name: 'Stop camera', exact: true }).focus();
+  await page.keyboard.press('Space');
+  await page.locator('.countdown').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Stop camera', exact: true }).count(), 1);
+  await keep.waitFor({ timeout: 15000 });
+  await page.keyboard.press('d');
+  await recordButton.waitFor();
+  console.log('Shortcuts: K ignored for a rejected take, D discards, Space ignored in inputs and does not click a focused button.');
   // Navigation releases workers and every camera track.
   await page.getByRole('link', { name: 'Home', exact: true }).click();
   await page.waitForFunction(() => window.trackingTest.workers === 0);

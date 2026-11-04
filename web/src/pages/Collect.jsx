@@ -188,8 +188,31 @@ export default function Collect() {
     setNotice(`Cleared saved takes for ${signer}.`);
   }
 
+  // Keyboard shortcuts call the same handlers as the buttons, so every start-block and
+  // verdict rule still applies. Read through a ref so the listener always sees current state.
+  const shortcuts = useRef(null);
+  shortcuts.current = {
+    space: () => { if (phase === 'idle' && ready) record(); },
+    k: () => { if (phase === 'review' && pending?.verdict.valid) keep(); },
+    d: () => { if (phase === 'review' && pending) discard(); },
+  };
+  useEffect(() => {
+    const typing = el => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName));
+    const keyOf = e => (e.code === 'Space' ? 'space' : e.key.toLowerCase());
+    const handled = e => !e.ctrlKey && !e.metaKey && !e.altKey && !typing(e.target) && ['space', 'k', 'd'].includes(keyOf(e));
+    function onKeyDown(e) {
+      if (!handled(e)) return;
+      e.preventDefault(); // Space must not also click a focused button or scroll the page.
+      if (!e.repeat) shortcuts.current[keyOf(e)]();
+    }
+    function onKeyUp(e) { if (handled(e) && keyOf(e) === 'space') e.preventDefault(); } // buttons activate on Space keyup
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+  }, []);
+
   const verdict = pending?.verdict;
-  const columns = Math.max(...labels.map(l => (l === noneLabel ? targets.none : targets.per_sign)), 1);
+  const columns =Math.max(...labels.map(l => (l === noneLabel ? targets.none : targets.per_sign)), 1);
 
   return (
     <div className="page">
@@ -220,7 +243,37 @@ export default function Collect() {
         <p>{timingInstructions(protocol)} Use CPU on the tested laptop. Keep hands and shoulders visible throughout the sign.</p>
         <p className="muted">The selected protocol controls inference FPS. Stop the camera to switch. Summary targets count only this protocol; downloads include all protocols with their original tags.</p>
       </section>
-      <CameraView cam={cam} showDiagnostics={false} />
+      <div className="collect-stage">
+        <CameraView cam={cam} showDiagnostics={false} />
+        <section className="card record-panel" aria-label="Record controls">
+          {label && <p className="record-label">Next take: <strong>{isNone ? `${noneLabel} (not a sign)` : label}</strong></p>}
+          {isNone && nonePrompt && <p><strong>NONE prompt:</strong> {nonePrompt.text}</p>}
+          {phase === 'idle' && <button className="btn primary" onClick={record} disabled={!ready} aria-keyshortcuts="Space">Record take</button>}
+          {phase === 'idle' && startBlock && <p className="notice warn" role="alert">{startBlock}</p>}
+          {!ready && phase === 'idle' && <p className="muted">Start the camera, enter a pseudonym and session, and tick consent.</p>}
+          {phase === 'countdown' && <div className="countdown" aria-live="assertive">{count}</div>}
+          {phase === 'recording' && <div className="countdown" aria-live="assertive">Recording…</div>}
+          {phase === 'review' && pending && (
+            <div>
+              <p>{pending.label}: {pending.quality.frames} frames over {(pending.quality.durationMs / 1000).toFixed(2)} s
+                ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
+                upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
+              {verdict.uncertainFrames > 0 && <p className="notice error">Uncertain hand detections occurred during this recording. Discard and inspect candidate diagnostics; no uncertain landmarks were recorded.</p>}
+              {verdict.handEvidence === false && !verdict.uncertainFrames && <p className="notice error">Within this take alone, a hand in the face zone did not first appear outside it. The server checks each take on its own frames. Discard and start with your hands away from your face.</p>}
+              {!verdict.valid && !verdict.uncertainFrames && verdict.handEvidence !== false && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
+              {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
+              {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
+              {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}
+              <div className="row">
+                <button className="btn primary" onClick={keep} disabled={!verdict.valid} aria-keyshortcuts="K">Keep</button>
+                <button className="btn" onClick={discard} aria-keyshortcuts="D">Discard</button>
+              </div>
+            </div>
+          )}
+          {notice && <p className="muted" role="status">{notice}</p>}
+          <p className="muted kbd-hint">Space: record · K: keep · D: discard</p>
+        </section>
+      </div>
       <DiagnosticCapture buffer={diagnosticBuffer.current} logCandidates={cam.logCandidates} setLogCandidates={cam.setLogCandidates} />
 
       <section className="card">
@@ -240,32 +293,7 @@ export default function Collect() {
             {!sign.verified && <p className="notice warn">Not verified yet. You can record it now; training will refuse this label until a reviewer verifies it.</p>}
           </div>
         )}
-        {isNone && nonePrompt && <p><strong>NONE prompt:</strong> {nonePrompt.text}</p>}
         {cam.stats.fps != null && cam.stats.fps < spec.minFps && <p className="notice warn">The camera is running at {cam.stats.fps.toFixed(1)} fps, below {spec.minFps}. Close other apps or tabs and improve the lighting. Takes outside the selected timing contract cannot be kept.</p>}
-
-        {phase === 'idle' && <button className="btn primary" onClick={record} disabled={!ready}>Record take</button>}
-        {phase === 'idle' && startBlock && <p className="notice warn" role="alert">{startBlock}</p>}
-        {!ready && phase === 'idle' && <p className="muted">Start the camera, enter a pseudonym and session, and tick consent.</p>}
-        {phase === 'countdown' && <div className="countdown" aria-live="assertive">{count}</div>}
-        {phase === 'recording' && <div className="countdown" aria-live="assertive">Recording…</div>}
-        {phase === 'review' && pending && (
-          <div>
-            <p>{pending.label}: {pending.quality.frames} frames over {(pending.quality.durationMs / 1000).toFixed(2)} s
-              ({verdict.fps.toFixed(1)} fps) · hands visible {(pending.quality.handRate * 100).toFixed(0)}% ·
-              upper body visible {(pending.quality.poseRate * 100).toFixed(0)}%</p>
-            {verdict.uncertainFrames > 0 && <p className="notice error">Uncertain hand detections occurred during this recording. Discard and inspect candidate diagnostics; no uncertain landmarks were recorded.</p>}
-            {verdict.handEvidence === false && !verdict.uncertainFrames && <p className="notice error">Within this take alone, a hand in the face zone did not first appear outside it. The server checks each take on its own frames. Discard and start with your hands away from your face.</p>}
-            {!verdict.valid && !verdict.uncertainFrames && verdict.handEvidence !== false && <p className="notice error">Timing contract failed: {timingInstructions(pending.protocol)} Discard and retry with CPU or lower resolution.</p>}
-            {verdict.valid && verdict.lowFps && <p className="notice warn">Low frame rate ({verdict.fps.toFixed(1)} fps). If kept, the take is marked low_fps.</p>}
-            {verdict.valid && pending.label !== noneLabel && pending.quality.handRate < 0.5 && <p className="notice warn">Hands were often not visible. Consider discarding.</p>}
-            {verdict.valid && pending.quality.poseRate < 0.5 && <p className="notice warn">Shoulders were often not visible. Sit further back.</p>}
-            <div className="row">
-              <button className="btn primary" onClick={keep} disabled={!verdict.valid}>Keep</button>
-              <button className="btn" onClick={discard}>Discard</button>
-            </div>
-          </div>
-        )}
-        {notice && <p className="muted" role="status">{notice}</p>}
         {takeDiagnostics && (phase === 'review' || phase === 'idle') && <p>
           <button className="btn" onClick={downloadTakeDiagnostics}>Download take diagnostics</button>{' '}
           <span className="muted">{takeDiagnostics.observations.length} observations from countdown to take end. Saved to this computer only; never uploaded.</span></p>}

@@ -114,6 +114,17 @@ input:focus-visible, select:focus-visible { border-color: var(--focus); }
 .stage-cover p { max-width: 36ch; margin: 0; }
 .camera-controls { margin-top: 12px; }
 
+/* /collect: record controls sit with the camera preview (beside it on wide screens). */
+.collect-stage { display: grid; gap: 16px; align-items: start; margin: 16px 0; }
+.collect-stage .record-panel { margin: 0; }
+.record-label { margin-top: 0; }
+.record-panel .countdown { line-height: 1.1; }
+.kbd-hint { font-size: 0.9rem; margin: 12px 0 0; }
+@media (min-width: 960px) {
+  .collect-stage { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
+  .collect-stage .record-panel { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+}
+
 /* Translate */
 .translate-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 @media (max-width: 900px) { .translate-layout { grid-template-columns: 1fr; } }
